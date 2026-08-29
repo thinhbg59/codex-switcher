@@ -370,14 +370,15 @@ async function hotReloadAccountForPaseo(targetAccountId = null) {
 }
 
 async function autoResumePaseoTask({ targetAgentId = null, targetAccountId = null, promptMessage = "tiếp tục", restartPaseo = false } = {}) {
-  // 1. Detect target agent
-  let targetAgent = null;
+  // 1. Detect ALL target agents with quota errors
+  let targetAgents = [];
   const erroredList = detectPaseoQuotaErrors();
 
   if (targetAgentId) {
-    targetAgent = erroredList.find((a) => a.id === targetAgentId) || { id: targetAgentId, title: "Paseo Agent" };
+    const single = erroredList.find((a) => a.id === targetAgentId) || { id: targetAgentId, title: "Paseo Agent" };
+    targetAgents = [single];
   } else if (erroredList.length > 0) {
-    targetAgent = erroredList[0];
+    targetAgents = erroredList;
   }
 
   // 2. Switch account: In-place Hot Reload vs Full Restart
@@ -387,33 +388,40 @@ async function autoResumePaseoTask({ targetAgentId = null, targetAccountId = nul
     await new Promise((r) => setTimeout(r, 3500));
   } else {
     switchRes = await hotReloadAccountForPaseo(targetAccountId);
-    await new Promise((r) => setTimeout(r, 600));
+    await new Promise((r) => setTimeout(r, 800));
   }
 
   const switchedTo = switchRes.switchedTo;
   const newUsed = typeof switchRes.usage?.primary_used_percent === "number" ? switchRes.usage.primary_used_percent : 0;
   const newRemaining = Math.max(0, 100 - newUsed);
 
-  // 4. Send prompt to the agent
-  let messageSent = false;
-  let sendError = null;
-
-  if (targetAgent && targetAgent.id) {
+  // 3. Send prompt to ALL errored agents
+  const results = [];
+  for (const agent of targetAgents) {
+    if (!agent.id) continue;
+    let messageSent = false;
+    let sendError = null;
     try {
-      console.log(`[PaseoAutoResume] Sending prompt "${promptMessage}" to agent ${targetAgent.id}...`);
-      await execAsync(`"${PASEO_CLI_PATH}" send ${targetAgent.id} "${promptMessage.replace(/"/g, '\\"')}" --no-wait`);
+      console.log(`[PaseoAutoResume] Sending prompt "${promptMessage}" to agent ${agent.id} (${agent.title || ""})...`);
+      await execAsync(`"${PASEO_CLI_PATH}" send ${agent.id} "${promptMessage.replace(/"/g, '\\"')}" --no-wait`);
       messageSent = true;
-      console.log(`[PaseoAutoResume] Prompt sent successfully to agent ${targetAgent.id}`);
+      console.log(`[PaseoAutoResume] Prompt sent successfully to agent ${agent.id}`);
     } catch (err) {
       sendError = err.message;
-      console.error(`[PaseoAutoResume] Failed to send prompt:`, err.message);
+      console.error(`[PaseoAutoResume] Failed to send prompt to ${agent.id}:`, err.message);
     }
+    lastHandledPaseoErrors[agent.id] = Date.now();
+    results.push({ agent, messageSent, sendError });
   }
 
-  // 5. Notify via Telegram & ntfy
+  // 4. Notify via Telegram & ntfy
   const config = readNotificationConfig();
   if (config.telegram?.enabled && config.telegram?.botToken && config.telegram?.chatId) {
-    const tgMsg = `🚀 *ĐÃ TỰ ĐỘNG KHÔI PHỤC & TIẾP TỤC TRÊN PASEO!*\n\n${targetAgent ? `📝 *Cuộc trò chuyện:* \`${targetAgent.title}\`\n` : ""}✅ *Tài khoản mới:* \`${switchedTo.name}\` (Còn *${newRemaining.toFixed(0)}%* quota)\n💬 *Tin nhắn gửi đi:* \`${promptMessage}\`${messageSent ? " (Đã gửi ✓)" : sendError ? ` (Lỗi: ${sendError})` : ""}\n\n👉 _Paseo đã được mở lại đúng cuộc trò chuyện và tiếp tục xử lý công việc!_`;
+    const resumedListText = results.length > 0
+      ? results.map((r, i) => `${i + 1}. \`${r.agent.title || r.agent.id}\``).join("\n")
+      : "_Tất cả các tab_";
+
+    const tgMsg = `🚀 *ĐÃ TỰ ĐỘNG KHÔI PHỤC ${results.length} CUỘC TRÒ CHUYỆN TRÊN PASEO!*\n\n📝 *Các tab được tiếp tục:*\n${resumedListText}\n\n✅ *Tài khoản mới:* \`${switchedTo.name}\` (Còn *${newRemaining.toFixed(0)}%* quota)\n💬 *Tin nhắn gửi đi:* \`${promptMessage}\`\n\n👉 _Paseo đang tiếp tục xử lý song song tất cả các tab!_`;
 
     await sendTelegramNotification({
       botToken: config.telegram.botToken,
@@ -432,24 +440,20 @@ async function autoResumePaseoTask({ targetAgentId = null, targetAccountId = nul
     await sendNtfyNotification({
       server: config.ntfy.server,
       topic: config.ntfy.topic,
-      title: `🚀 Tiếp tục Paseo: ${switchedTo.name}`,
-      message: `Đã đổi sang ${switchedTo.name} (còn ${newRemaining.toFixed(0)}%) và gửi tin nhắn "${promptMessage}" tiếp tục xử lý.`,
+      title: `🚀 Tiếp tục ${results.length} tab Paseo: ${switchedTo.name}`,
+      message: `Đã đổi sang ${switchedTo.name} (còn ${newRemaining.toFixed(0)}%) và tiếp tục ${results.length} cuộc trò chuyện.`,
       tags: ["rocket", "white_check_mark"],
       clickUrl: DASHBOARD_URL,
     }).catch(() => {});
   }
 
-  if (targetAgent?.id) {
-    lastHandledPaseoErrors[targetAgent.id] = Date.now();
-  }
-
   return {
     ok: true,
-    targetAgent,
+    targetAgents,
+    resumedCount: results.length,
+    results,
     switchedTo,
     usage: switchRes.usage,
-    messageSent,
-    sendError,
   };
 }
 
@@ -462,16 +466,20 @@ setInterval(async () => {
     const errored = detectPaseoQuotaErrors();
     if (errored.length === 0) return;
 
-    const latest = errored[0];
     const now = Date.now();
-    // Only handle if error occurred in the last 3 minutes and wasn't handled in the last 3 minutes
-    if (now - latest.mtime < 3 * 60 * 1000) {
-      const lastHandled = lastHandledPaseoErrors[latest.id];
-      if (!lastHandled || now - lastHandled > 3 * 60 * 1000) {
-        console.log(`[PaseoMonitor] Detected new quota error in Paseo agent: ${latest.id} (${latest.title}). Starting auto-resume...`);
-        lastHandledPaseoErrors[latest.id] = now;
-        await autoResumePaseoTask({ targetAgentId: latest.id });
+    // Filter to unhandled errors in the last 3 minutes
+    const newlyErrored = errored.filter((a) => {
+      if (now - a.mtime > 3 * 60 * 1000) return false;
+      const lastHandled = lastHandledPaseoErrors[a.id];
+      return !lastHandled || now - lastHandled > 3 * 60 * 1000;
+    });
+
+    if (newlyErrored.length > 0) {
+      console.log(`[PaseoMonitor] Detected ${newlyErrored.length} Paseo agent(s) with quota error. Resuming all...`);
+      for (const a of newlyErrored) {
+        lastHandledPaseoErrors[a.id] = now;
       }
+      await autoResumePaseoTask();
     }
   } catch (err) {
     console.error("[PaseoMonitor] Check error:", err.message);
