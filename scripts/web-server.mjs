@@ -13,6 +13,7 @@ const DIST_DIR = fs.existsSync(path.join(__dirname, "dist"))
 const BACKEND_PORT = 3211;
 const WEB_PORT = parseInt(process.env.CODEX_SWITCHER_WEB_PORT || "3210", 10);
 const WEB_HOST = process.env.CODEX_SWITCHER_WEB_HOST || "0.0.0.0";
+const DASHBOARD_URL = "http://100.66.99.92:3210";
 const BINARY_PATH = "/Applications/Codex Switcher.app/Contents/MacOS/codex-web";
 const NOTIFICATION_CONFIG_PATH = path.join(process.env.HOME || "", ".codex", "notification_config.json");
 
@@ -29,7 +30,22 @@ const MIME_TYPES = {
   ".webp": "image/webp",
 };
 
-// ==================== NOTIFICATION HELPERS ====================
+// ==================== BACKEND INVOKER ====================
+
+async function invokeBackendApi(command, payload = {}) {
+  const res = await fetch(`http://127.0.0.1:${BACKEND_PORT}/api/invoke/${command}`, {
+    method: "POST",
+    headers: { "Content-Type": "application/json" },
+    body: JSON.stringify(payload),
+  });
+  if (!res.ok) {
+    const text = await res.text();
+    throw new Error(`API error (${res.status}): ${text}`);
+  }
+  return await res.json();
+}
+
+// ==================== NOTIFICATION CONFIG & HELPERS ====================
 
 function readNotificationConfig() {
   try {
@@ -48,6 +64,10 @@ function readNotificationConfig() {
         },
         threshold: typeof data.threshold === "number" ? data.threshold : 80,
         cooldownMinutes: typeof data.cooldownMinutes === "number" ? data.cooldownMinutes : 60,
+        autoSwitch: {
+          enabled: Boolean(data.autoSwitch?.enabled),
+          threshold: typeof data.autoSwitch?.threshold === "number" ? data.autoSwitch.threshold : 95,
+        },
       };
     }
   } catch (err) {
@@ -58,6 +78,7 @@ function readNotificationConfig() {
     ntfy: { enabled: false, topic: "", server: "https://ntfy.sh" },
     threshold: 80,
     cooldownMinutes: 60,
+    autoSwitch: { enabled: false, threshold: 95 },
   };
 }
 
@@ -75,29 +96,70 @@ function writeNotificationConfig(config) {
   }
 }
 
+function formatResetDuration(resetTimestamp) {
+  if (!resetTimestamp) return null;
+  const now = Date.now();
+  const resetDate = new Date(resetTimestamp * 1000);
+  const diffMinutes = Math.max(0, Math.round((resetDate.getTime() - now) / 60000));
+  const hours = Math.floor(diffMinutes / 60);
+  const mins = diffMinutes % 60;
+  const timeStr = resetDate.toLocaleTimeString("vi-VN", { hour: "2-digit", minute: "2-digit" });
+  return `${timeStr} (sau ${hours > 0 ? `${hours}h ` : ""}${mins}m)`;
+}
+
 async function sendTelegramNotification({ botToken, chatId, text, parseMode = "Markdown", replyMarkup }) {
   if (!botToken || !chatId) {
     throw new Error("Vui lòng cung cấp đầy đủ Bot Token và Chat ID");
   }
-  const url = `https://api.telegram.org/bot${botToken}/sendMessage`;
-  const body = {
-    chat_id: chatId,
-    text,
+  const params = new URLSearchParams({
+    chat_id: String(chatId),
+    text: text || "",
     parse_mode: parseMode,
-  };
-  if (replyMarkup) {
-    body.reply_markup = replyMarkup;
-  }
-  const res = await fetch(url, {
-    method: "POST",
-    headers: { "Content-Type": "application/json" },
-    body: JSON.stringify(body),
   });
-  const data = await res.json();
-  if (!data.ok) {
-    throw new Error(data.description || `Lỗi Telegram API (HTTP ${res.status})`);
+  if (replyMarkup) {
+    params.append("reply_markup", typeof replyMarkup === "string" ? replyMarkup : JSON.stringify(replyMarkup));
   }
-  return data;
+
+  const url = `https://api.telegram.org/bot${botToken}/sendMessage?${params.toString()}`;
+  try {
+    const res = await fetch(url, { signal: AbortSignal.timeout(10000) });
+    const data = await res.json();
+    if (!data.ok) {
+      throw new Error(data.description || `Lỗi Telegram API (HTTP ${res.status})`);
+    }
+    return data;
+  } catch (err) {
+    // Fallback to POST if query string is too large
+    const postUrl = `https://api.telegram.org/bot${botToken}/sendMessage`;
+    const body = {
+      chat_id: chatId,
+      text,
+      parse_mode: parseMode,
+    };
+    if (replyMarkup) body.reply_markup = replyMarkup;
+    const postRes = await fetch(postUrl, {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify(body),
+      signal: AbortSignal.timeout(10000),
+    });
+    const postData = await postRes.json();
+    if (!postData.ok) {
+      throw new Error(postData.description || `Lỗi Telegram API (HTTP ${postRes.status})`);
+    }
+    return postData;
+  }
+}
+
+async function answerTelegramCallbackQuery(botToken, callbackQueryId, text = "") {
+  try {
+    const params = new URLSearchParams({
+      callback_query_id: String(callbackQueryId),
+    });
+    if (text) params.append("text", text);
+    const url = `https://api.telegram.org/bot${botToken}/answerCallbackQuery?${params.toString()}`;
+    await fetch(url, { signal: AbortSignal.timeout(5000) });
+  } catch {}
 }
 
 async function sendNtfyNotification({ server = "https://ntfy.sh", topic, title, message, priority = 4, tags = ["warning", "bar_chart"], clickUrl, actions }) {
@@ -132,76 +194,119 @@ async function sendNtfyNotification({ server = "https://ntfy.sh", topic, title, 
   return { ok: true };
 }
 
+// ==================== AUTO-SWITCH & LOW QUOTA MONITOR ====================
+
 let lastAlerts = {};
 
 async function checkLowQuotaAndNotify() {
   try {
     const config = readNotificationConfig();
-    if (!config.telegram.enabled && !config.ntfy.enabled) {
-      return;
-    }
-
-    // Call backend to get active account info
-    const activeRes = await fetch(`http://127.0.0.1:${BACKEND_PORT}/api/invoke/get_active_account_info`, {
-      method: "POST",
-      headers: { "Content-Type": "application/json" },
-      body: JSON.stringify({}),
-    });
-    if (!activeRes.ok) return;
-    const activeAccount = await activeRes.json();
+    const activeAccount = await invokeBackendApi("get_active_account_info").catch(() => null);
     if (!activeAccount || !activeAccount.id) return;
 
-    // Call backend to get usage for active account
-    const usageRes = await fetch(`http://127.0.0.1:${BACKEND_PORT}/api/invoke/get_usage`, {
-      method: "POST",
-      headers: { "Content-Type": "application/json" },
-      body: JSON.stringify({ accountId: activeAccount.id }),
-    });
-    if (!usageRes.ok) return;
-    const usage = await usageRes.json();
+    const usage = await invokeBackendApi("get_usage", { accountId: activeAccount.id }).catch(() => null);
     if (!usage || typeof usage.primary_used_percent !== "number") return;
 
     const used = usage.primary_used_percent;
     const remaining = Math.max(0, 100 - used);
     const threshold = config.threshold || 80;
+    const autoSwitchThreshold = config.autoSwitch?.threshold || 95;
 
-    if (used >= threshold) {
+    // 1. AUTO-SWITCH CHECK
+    if (config.autoSwitch?.enabled && used >= autoSwitchThreshold) {
+      const allAccounts = await invokeBackendApi("list_accounts").catch(() => []);
+      const otherAccounts = allAccounts.filter((a) => a.id !== activeAccount.id);
+
+      if (otherAccounts.length > 0) {
+        // Fetch usage for other accounts
+        const candidatesWithUsage = [];
+        for (const candidate of otherAccounts) {
+          try {
+            const candUsage = await invokeBackendApi("get_usage", { accountId: candidate.id });
+            const candUsed = typeof candUsage?.primary_used_percent === "number" ? candUsage.primary_used_percent : 0;
+            candidatesWithUsage.push({ account: candidate, usage: candUsage, used: candUsed });
+          } catch {
+            candidatesWithUsage.push({ account: candidate, usage: null, used: 100 });
+          }
+        }
+
+        // Sort by lowest usage first
+        candidatesWithUsage.sort((a, b) => a.used - b.used);
+        const bestCandidate = candidatesWithUsage[0];
+
+        if (bestCandidate && bestCandidate.used < autoSwitchThreshold) {
+          console.log(`[AutoSwitch] Switching from ${activeAccount.name} (${used}%) to ${bestCandidate.account.name} (${bestCandidate.used}%)...`);
+          await invokeBackendApi("switch_account", { accountId: bestCandidate.account.id });
+
+          const candRemaining = Math.max(0, 100 - bestCandidate.used);
+          const candResetText = formatResetDuration(bestCandidate.usage?.primary_resets_at);
+
+          // Notify via Telegram
+          if (config.telegram?.enabled && config.telegram?.botToken && config.telegram?.chatId) {
+            const tgMsg = `🔄 *TỰ ĐỘNG CHUYỂN TÀI KHOẢN THÀNH CÔNG!*\n\n⚠️ *Tài khoản cũ:* \`${activeAccount.name}\` (Đã dùng ${used.toFixed(0)}%)\n✅ *Tài khoản mới:* \`${bestCandidate.account.name}\`\n📊 *Hạn mức mới:* Đã dùng *${bestCandidate.used.toFixed(0)}%* (Còn lại: *${candRemaining.toFixed(0)}%*)\n${candResetText ? `⏳ *Reset:* ${candResetText}\n` : ""}\n👉 _Codex đã được chuyển sang tài khoản mới tự động để không bị ngắt quãng._`;
+            await sendTelegramNotification({
+              botToken: config.telegram.botToken,
+              chatId: config.telegram.chatId,
+              text: tgMsg,
+              replyMarkup: {
+                inline_keyboard: [[{ text: "📱 Mở Dashboard", url: DASHBOARD_URL }]],
+              },
+            }).catch((e) => console.error("[AutoSwitch] Telegram error:", e.message));
+          }
+
+          // Notify via ntfy
+          if (config.ntfy?.enabled && config.ntfy?.topic) {
+            await sendNtfyNotification({
+              server: config.ntfy.server,
+              topic: config.ntfy.topic,
+              title: `🔄 Tự động chuyển: ${bestCandidate.account.name}`,
+              message: `Đã tự động đổi sang ${bestCandidate.account.name} (còn ${candRemaining.toFixed(0)}%) do ${activeAccount.name} đạt ${used.toFixed(0)}%.`,
+              tags: ["repeat", "white_check_mark"],
+              clickUrl: DASHBOARD_URL,
+            }).catch((e) => console.error("[AutoSwitch] ntfy error:", e.message));
+          }
+
+          lastAlerts[activeAccount.id] = { time: Date.now(), used };
+          return;
+        }
+      }
+    }
+
+    // 2. REGULAR LOW-QUOTA ALERT
+    if ((config.telegram.enabled || config.ntfy.enabled) && used >= threshold) {
       const now = Date.now();
       const last = lastAlerts[activeAccount.id];
       const cooldownMs = (config.cooldownMinutes || 60) * 60 * 1000;
 
-      // Only notify if cooldown has passed or used percent increased significantly
-      if (last && (now - last.time < cooldownMs) && (used <= last.used + 5)) {
+      if (last && now - last.time < cooldownMs && used <= last.used + 5) {
         return;
       }
 
-      let resetTimeText = "";
-      if (usage.primary_resets_at) {
-        const resetDate = new Date(usage.primary_resets_at * 1000);
-        const diffMinutes = Math.max(0, Math.round((resetDate.getTime() - now) / 60000));
-        const hours = Math.floor(diffMinutes / 60);
-        const mins = diffMinutes % 60;
-        const timeStr = resetDate.toLocaleTimeString("vi-VN", { hour: "2-digit", minute: "2-digit" });
-        resetTimeText = `${timeStr} (sau ${hours > 0 ? `${hours}h ` : ""}${mins}m)`;
+      const resetTimeText = formatResetDuration(usage.primary_resets_at);
+
+      // Fetch other accounts for quick-switch inline buttons
+      const allAccounts = await invokeBackendApi("list_accounts").catch(() => []);
+      const otherAccounts = allAccounts.filter((a) => a.id !== activeAccount.id);
+      const switchButtons = [];
+
+      for (let i = 0; i < Math.min(3, otherAccounts.length); i++) {
+        const acc = otherAccounts[i];
+        const shortName = acc.name.length > 20 ? acc.name.substring(0, 18) + ".." : acc.name;
+        switchButtons.push([{ text: `🔄 Chuyển sang: ${shortName}`, callback_data: `switch:${acc.id}` }]);
       }
+      switchButtons.push([{ text: "📱 Mở Codex Switcher", url: DASHBOARD_URL }]);
 
-      const dashboardUrl = "http://100.66.99.92:3210";
-
-      // 1. Send Telegram if enabled
+      // Telegram notification
       if (config.telegram.enabled && config.telegram.botToken && config.telegram.chatId) {
-        const tgText = `⚠️ *Cảnh báo: Hạn mức Codex sắp hết!*\n\n👤 *Tài khoản:* \`${activeAccount.name || activeAccount.email || "Active"}\`\n📊 *Đã sử dụng:* *${used.toFixed(0)}%* (Còn lại: *${remaining.toFixed(0)}%*)\n${resetTimeText ? `⏳ *Reset lúc:* ${resetTimeText}\n` : ""}\n💡 _Hãy mở Codex Switcher để đổi sang tài khoản khác hoặc lưu công việc._`;
+        const tgText = `⚠️ *Cảnh báo: Hạn mức Codex sắp hết!*\n\n👤 *Tài khoản:* \`${activeAccount.name}\`\n📊 *Đã sử dụng:* *${used.toFixed(0)}%* (Còn lại: *${remaining.toFixed(0)}%*)\n${resetTimeText ? `⏳ *Reset lúc:* ${resetTimeText}\n` : ""}\n💡 _Hãy bấm nút bên dưới để đổi sang tài khoản khác hoặc mở dashboard._`;
         try {
           await sendTelegramNotification({
             botToken: config.telegram.botToken,
             chatId: config.telegram.chatId,
             text: tgText,
             replyMarkup: {
-              inline_keyboard: [
-                [
-                  { text: "📱 Mở Codex Switcher", url: dashboardUrl }
-                ]
-              ]
-            }
+              inline_keyboard: switchButtons,
+            },
           });
           console.log(`[Notification] Sent Telegram low quota alert for ${activeAccount.name} (${used}%)`);
         } catch (tgErr) {
@@ -209,7 +314,7 @@ async function checkLowQuotaAndNotify() {
         }
       }
 
-      // 2. Send ntfy if enabled
+      // ntfy notification
       if (config.ntfy.enabled && config.ntfy.topic) {
         const ntfyTitle = `⚠️ Codex Quota thấp (${used.toFixed(0)}%) - ${activeAccount.name}`;
         const ntfyMsg = `Tài khoản "${activeAccount.name}" đã dùng ${used.toFixed(0)}% (còn ${remaining.toFixed(0)}%).${resetTimeText ? ` Reset: ${resetTimeText}.` : ""}`;
@@ -219,10 +324,8 @@ async function checkLowQuotaAndNotify() {
             topic: config.ntfy.topic,
             title: ntfyTitle,
             message: ntfyMsg,
-            clickUrl: dashboardUrl,
-            actions: [
-              { action: "view", label: "📱 Mở Dashboard", url: dashboardUrl }
-            ]
+            clickUrl: DASHBOARD_URL,
+            actions: [{ action: "view", label: "📱 Mở Dashboard", url: DASHBOARD_URL }],
           });
           console.log(`[Notification] Sent ntfy low quota alert for ${activeAccount.name} (${used}%)`);
         } catch (ntfyErr) {
@@ -241,6 +344,414 @@ async function checkLowQuotaAndNotify() {
 setInterval(() => {
   void checkLowQuotaAndNotify();
 }, 60 * 1000);
+
+// ==================== TELEGRAM INTERACTIVE BOT POLLING ====================
+
+let tgPollingOffset = 0;
+let isPollingActive = false;
+
+async function handleTelegramMessage(msg, botToken, config) {
+  const chatId = msg.chat?.id;
+  const text = (msg.text || "").trim();
+  if (!chatId || !text) return;
+
+  const lower = text.toLowerCase();
+
+  // 1. /start, /help
+  if (lower === "/start" || lower === "/help") {
+    const active = await invokeBackendApi("get_active_account_info").catch(() => null);
+    const welcome = `👋 *Xin chào! Tôi là Bot điều khiển Codex Switcher.*\n\n⚡ *Tài khoản active:* \`${active?.name || "Chưa chọn"}\`\n\n📱 *Các lệnh điều khiển:*\n• /list - Danh sách tài khoản & nút chuyển nhanh\n• /active - Xem chi tiết hạn mức tài khoản hiện tại\n• /switch <số hoặc tên> - Chuyển sang tài khoản\n• /warmup - Warm up tất cả tài khoản\n• /paseo - Trạng thái & Mở/Đóng app Paseo\n• /codex - Trạng thái & Mở/Đóng app Codex\n\n👉 _Hoặc bấm các nút bên dưới:_`;
+
+    await sendTelegramNotification({
+      botToken,
+      chatId,
+      text: welcome,
+      replyMarkup: {
+        inline_keyboard: [
+          [
+            { text: "📋 Danh sách tài khoản", callback_data: "cmd_list" },
+            { text: "⚡ Tài khoản Active", callback_data: "cmd_active" },
+          ],
+          [
+            { text: "🔥 Warm Up All", callback_data: "cmd_warmup" },
+            { text: "🚀 Mở Paseo", callback_data: "cmd_open_paseo" },
+          ],
+          [{ text: "📱 Mở Web Dashboard", url: DASHBOARD_URL }],
+        ],
+      },
+    });
+    return;
+  }
+
+  // 2. /list, /accounts
+  if (lower === "/list" || lower === "/accounts") {
+    await sendAccountsListMessage(botToken, chatId);
+    return;
+  }
+
+  // 3. /active, /status
+  if (lower === "/active" || lower === "/status") {
+    await sendActiveAccountStatusMessage(botToken, chatId);
+    return;
+  }
+
+  // 4. /warmup
+  if (lower === "/warmup") {
+    await invokeBackendApi("warmup_all_accounts").catch(() => {});
+    await sendTelegramNotification({
+      botToken,
+      chatId,
+      text: "🔥 *Đã gửi tín hiệu Warm-up đến toàn bộ các tài khoản thành công!*",
+      replyMarkup: {
+        inline_keyboard: [[{ text: "📋 Xem danh sách tài khoản", callback_data: "cmd_list" }]],
+      },
+    });
+    return;
+  }
+
+  // 5. /paseo
+  if (lower === "/paseo") {
+    const paseoInfo = await getPaseoProcesses();
+    const isRunning = paseoInfo.count > 0;
+    const msgText = isRunning
+      ? `🟢 *Paseo đang chạy* (${paseoInfo.count} tiến trình)`
+      : `⚪ *Paseo đang tắt* (0 tiến trình)`;
+
+    const buttons = isRunning
+      ? [
+          [{ text: "❌ Đóng Paseo", callback_data: "cmd_close_paseo" }],
+          [{ text: "⛔ Force Close Paseo", callback_data: "cmd_kill_paseo" }],
+        ]
+      : [[{ text: "🚀 Mở Paseo", callback_data: "cmd_open_paseo" }]];
+
+    await sendTelegramNotification({
+      botToken,
+      chatId,
+      text: msgText,
+      replyMarkup: { inline_keyboard: buttons },
+    });
+    return;
+  }
+
+  // 6. /codex
+  if (lower === "/codex") {
+    const codexInfo = await invokeBackendApi("check_codex_processes").catch(() => ({ count: 0 }));
+    const isRunning = codexInfo.count > 0;
+    const msgText = isRunning
+      ? `🟢 *Codex đang chạy* (${codexInfo.count} tiến trình)`
+      : `⚪ *Codex đang tắt* (0 tiến trình)`;
+
+    const buttons = isRunning
+      ? [[{ text: "⛔ Force Close Codex", callback_data: "cmd_kill_codex" }]]
+      : [[{ text: "🚀 Mở Codex", callback_data: "cmd_open_codex" }]];
+
+    await sendTelegramNotification({
+      botToken,
+      chatId,
+      text: msgText,
+      replyMarkup: { inline_keyboard: buttons },
+    });
+    return;
+  }
+
+  // 7. /switch <query>
+  if (lower.startsWith("/switch ") || lower.startsWith("switch ")) {
+    const query = text.replace(/^\/?switch\s+/i, "").trim();
+    if (!query) {
+      await sendTelegramNotification({
+        botToken,
+        chatId,
+        text: "❓ Vui lòng nhập số thứ tự hoặc tên tài khoản. Ví dụ: `/switch 2` hoặc `/switch ngovan`",
+      });
+      return;
+    }
+
+    const accounts = await invokeBackendApi("list_accounts").catch(() => []);
+    let target = null;
+
+    // Check if query is a 1-based index
+    const index = parseInt(query, 10);
+    if (!isNaN(index) && index >= 1 && index <= accounts.length) {
+      target = accounts[index - 1];
+    } else {
+      // Substring match on name or email
+      target = accounts.find((a) =>
+        a.name.toLowerCase().includes(query.toLowerCase()) ||
+        (a.email && a.email.toLowerCase().includes(query.toLowerCase()))
+      );
+    }
+
+    if (!target) {
+      await sendTelegramNotification({
+        botToken,
+        chatId,
+        text: `❌ Không tìm thấy tài khoản khớp với: *"${query}"*.\nGõ /list để xem danh sách tài khoản.`,
+      });
+      return;
+    }
+
+    await performSwitchAndNotify(botToken, chatId, target.id);
+    return;
+  }
+}
+
+async function sendAccountsListMessage(botToken, chatId) {
+  const accounts = await invokeBackendApi("list_accounts").catch(() => []);
+  if (accounts.length === 0) {
+    await sendTelegramNotification({
+      botToken,
+      chatId,
+      text: "⚠️ Hiện chưa có tài khoản nào được lưu trong Codex Switcher.",
+    });
+    return;
+  }
+
+  let textLines = ["📋 *DANH SÁCH TÀI KHOẢN CODEX*\n"];
+  const inlineButtons = [];
+
+  for (let i = 0; i < accounts.length; i++) {
+    const acc = accounts[i];
+    const num = i + 1;
+    let usageInfo = null;
+    try {
+      usageInfo = await invokeBackendApi("get_usage", { accountId: acc.id });
+    } catch {}
+
+    const used = typeof usageInfo?.primary_used_percent === "number" ? usageInfo.primary_used_percent : null;
+    const remaining = used !== null ? Math.max(0, 100 - used) : null;
+    const resetText = formatResetDuration(usageInfo?.primary_resets_at);
+
+    if (acc.is_active) {
+      textLines.push(`🟢 *${num}. ${acc.name}* [ACTIVE]`);
+      if (used !== null) {
+        textLines.push(`   📊 Đã dùng: *${used.toFixed(0)}%* (Còn: ${remaining.toFixed(0)}%)${resetText ? ` | Reset: ${resetText}` : ""}\n`);
+      }
+      inlineButtons.push([{ text: `🟢 ${num}. ${acc.name} (Active)`, callback_data: `switch:${acc.id}` }]);
+    } else {
+      textLines.push(`⚪ *${num}. ${acc.name}*`);
+      if (used !== null) {
+        textLines.push(`   📊 Đã dùng: *${used.toFixed(0)}%* (Còn: ${remaining.toFixed(0)}%)${resetText ? ` | Reset: ${resetText}` : ""}\n`);
+      }
+      const shortTitle = `🔄 ${num}. ${acc.name}${used !== null ? ` (${used.toFixed(0)}%)` : ""}`;
+      inlineButtons.push([{ text: shortTitle, callback_data: `switch:${acc.id}` }]);
+    }
+  }
+
+  textLines.push("👉 _Bấm nút bên dưới để chuyển tài khoản ngay lập tức:_");
+  inlineButtons.push([{ text: "📱 Mở Web Dashboard", url: DASHBOARD_URL }]);
+
+  await sendTelegramNotification({
+    botToken,
+    chatId,
+    text: textLines.join("\n"),
+    replyMarkup: { inline_keyboard: inlineButtons },
+  });
+}
+
+async function sendActiveAccountStatusMessage(botToken, chatId) {
+  const active = await invokeBackendApi("get_active_account_info").catch(() => null);
+  if (!active || !active.id) {
+    await sendTelegramNotification({
+      botToken,
+      chatId,
+      text: "⚠️ Hiện chưa có tài khoản nào đang active.",
+    });
+    return;
+  }
+
+  const usage = await invokeBackendApi("get_usage", { accountId: active.id }).catch(() => null);
+  const used5h = typeof usage?.primary_used_percent === "number" ? usage.primary_used_percent : 0;
+  const rem5h = Math.max(0, 100 - used5h);
+  const reset5h = formatResetDuration(usage?.primary_resets_at);
+
+  const used7d = typeof usage?.secondary_used_percent === "number" ? usage.secondary_used_percent : null;
+  const rem7d = used7d !== null ? Math.max(0, 100 - used7d) : null;
+  const reset7d = formatResetDuration(usage?.secondary_resets_at);
+
+  const text = `⚡ *THÔNG TIN TÀI KHOẢN ACTIVE*\n\n👤 *Tên:* \`${active.name}\`\n📧 *Email:* \`${active.email || "N/A"}\`\n👑 *Gói:* *${(active.plan_type || "Plus").toUpperCase()}*\n\n📊 *Hạn mức 5h:* Đã dùng *${used5h.toFixed(0)}%* (Còn lại: *${rem5h.toFixed(0)}%*)\n${reset5h ? `⏳ *Reset 5h:* ${reset5h}\n` : ""}${used7d !== null ? `\n📈 *Hạn mức 7 ngày:* Đã dùng *${used7d.toFixed(0)}%* (Còn lại: *${rem7d.toFixed(0)}%*)\n${reset7d ? `⏳ *Reset 7d:* ${reset7d}\n` : ""}` : ""}`;
+
+  await sendTelegramNotification({
+    botToken,
+    chatId,
+    text,
+    replyMarkup: {
+      inline_keyboard: [
+        [{ text: "📋 Danh sách tài khoản", callback_data: "cmd_list" }],
+        [{ text: "📱 Mở Web Dashboard", url: DASHBOARD_URL }],
+      ],
+    },
+  });
+}
+
+async function performSwitchAndNotify(botToken, chatId, accountId) {
+  try {
+    await invokeBackendApi("switch_account", { accountId });
+    const active = await invokeBackendApi("get_active_account_info").catch(() => null);
+    const usage = await invokeBackendApi("get_usage", { accountId }).catch(() => null);
+
+    const used = typeof usage?.primary_used_percent === "number" ? usage.primary_used_percent : 0;
+    const remaining = Math.max(0, 100 - used);
+    const resetText = formatResetDuration(usage?.primary_resets_at);
+
+    const msg = `✅ *CHUYỂN TÀI KHOẢN THÀNH CÔNG!*\n\n👤 *Tài khoản hiện tại:* \`${active?.name || "Active"}\`\n📊 *Hạn mức:* Đã dùng *${used.toFixed(0)}%* (Còn lại: *${remaining.toFixed(0)}%*)\n${resetText ? `⏳ *Reset lúc:* ${resetText}\n` : ""}\n👉 _Codex đã được cập nhật sang tài khoản này!_`;
+
+    await sendTelegramNotification({
+      botToken,
+      chatId,
+      text: msg,
+      replyMarkup: {
+        inline_keyboard: [
+          [{ text: "📋 Danh sách tài khoản", callback_data: "cmd_list" }],
+          [{ text: "📱 Mở Web Dashboard", url: DASHBOARD_URL }],
+        ],
+      },
+    });
+  } catch (err) {
+    await sendTelegramNotification({
+      botToken,
+      chatId,
+      text: `❌ Chuyển tài khoản thất bại: ${err.message}`,
+    });
+  }
+}
+
+async function handleTelegramCallbackQuery(query, botToken, config) {
+  const chatId = query.message?.chat?.id;
+  const data = query.data;
+  if (!chatId || !data) return;
+
+  if (data.startsWith("switch:")) {
+    const accountId = data.split(":")[1];
+    await answerTelegramCallbackQuery(botToken, query.id, "Đang chuyển tài khoản...");
+    await performSwitchAndNotify(botToken, chatId, accountId);
+    return;
+  }
+
+  if (data === "cmd_list") {
+    await answerTelegramCallbackQuery(botToken, query.id);
+    await sendAccountsListMessage(botToken, chatId);
+    return;
+  }
+
+  if (data === "cmd_active") {
+    await answerTelegramCallbackQuery(botToken, query.id);
+    await sendActiveAccountStatusMessage(botToken, chatId);
+    return;
+  }
+
+  if (data === "cmd_warmup") {
+    await answerTelegramCallbackQuery(botToken, query.id, "Đang warm up...");
+    await invokeBackendApi("warmup_all_accounts").catch(() => {});
+    await sendTelegramNotification({
+      botToken,
+      chatId,
+      text: "🔥 *Đã gửi tín hiệu Warm-up đến toàn bộ các tài khoản thành công!*",
+      replyMarkup: {
+        inline_keyboard: [[{ text: "📋 Xem danh sách tài khoản", callback_data: "cmd_list" }]],
+      },
+    });
+    return;
+  }
+
+  if (data === "cmd_open_paseo") {
+    await answerTelegramCallbackQuery(botToken, query.id, "Đang mở Paseo...");
+    await openPaseoApp().catch(() => {});
+    await sendTelegramNotification({
+      botToken,
+      chatId,
+      text: "🚀 *Đã gửi lệnh mở ứng dụng Paseo.*",
+    });
+    return;
+  }
+
+  if (data === "cmd_close_paseo") {
+    await answerTelegramCallbackQuery(botToken, query.id, "Đang đóng Paseo...");
+    await closePaseoApp().catch(() => {});
+    await sendTelegramNotification({
+      botToken,
+      chatId,
+      text: "❌ *Đã gửi lệnh đóng ứng dụng Paseo.*",
+    });
+    return;
+  }
+
+  if (data === "cmd_kill_paseo") {
+    await answerTelegramCallbackQuery(botToken, query.id, "Đang force close Paseo...");
+    await killPaseoProcesses().catch(() => {});
+    await sendTelegramNotification({
+      botToken,
+      chatId,
+      text: "⛔ *Đã Force Close toàn bộ tiến trình Paseo.*",
+    });
+    return;
+  }
+
+  if (data === "cmd_open_codex") {
+    await answerTelegramCallbackQuery(botToken, query.id, "Đang mở Codex...");
+    await openCodexApp().catch(() => {});
+    await sendTelegramNotification({
+      botToken,
+      chatId,
+      text: "🚀 *Đã gửi lệnh mở ứng dụng Codex.*",
+    });
+    return;
+  }
+
+  if (data === "cmd_kill_codex") {
+    await answerTelegramCallbackQuery(botToken, query.id, "Đang force close Codex...");
+    await invokeBackendApi("kill_codex_processes").catch(() => {});
+    await sendTelegramNotification({
+      botToken,
+      chatId,
+      text: "⛔ *Đã Force Close toàn bộ tiến trình Codex.*",
+    });
+    return;
+  }
+
+  await answerTelegramCallbackQuery(botToken, query.id);
+}
+
+async function startTelegramLongPolling() {
+  if (isPollingActive) return;
+  isPollingActive = true;
+
+  while (true) {
+    const config = readNotificationConfig();
+    if (!config.telegram?.enabled || !config.telegram?.botToken) {
+      await new Promise((r) => setTimeout(r, 5000));
+      continue;
+    }
+
+    const botToken = config.telegram.botToken;
+    try {
+      const url = `https://api.telegram.org/bot${botToken}/getUpdates?offset=${tgPollingOffset}&timeout=15`;
+      const res = await fetch(url, { signal: AbortSignal.timeout(20000) });
+      if (res.ok) {
+        const data = await res.json();
+        if (data.ok && Array.isArray(data.result)) {
+          for (const update of data.result) {
+            tgPollingOffset = update.update_id + 1;
+            if (update.message) {
+              await handleTelegramMessage(update.message, botToken, config).catch((e) =>
+                console.error("[TG Bot] Message error:", e.message)
+              );
+            } else if (update.callback_query) {
+              await handleTelegramCallbackQuery(update.callback_query, botToken, config).catch((e) =>
+                console.error("[TG Bot] Callback error:", e.message)
+              );
+            }
+          }
+        }
+      }
+    } catch {
+      // Short pause on network error/timeout
+      await new Promise((r) => setTimeout(r, 1000));
+    }
+  }
+}
+
+// Start Telegram Poller in background
+void startTelegramLongPolling();
 
 // ==================== TAILSCALE HELPERS ====================
 
@@ -469,8 +980,7 @@ const server = http.createServer(async (req, res) => {
       const payload = await parseRequestBody(req);
       const botToken = payload.botToken;
       const chatId = payload.chatId;
-      const dashboardUrl = "http://100.66.99.92:3210";
-      const tgText = `🔔 *Codex Switcher - Thông báo thử nghiệm*\n\n✅ Cấu hình Telegram của bạn đang hoạt động bình thường!\n\n_Hệ thống sẽ gửi cảnh báo đến đây khi hạn mức của tài khoản active xuống thấp._`;
+      const tgText = `🔔 *Codex Switcher - Thông báo thử nghiệm*\n\n✅ Cấu hình Telegram của bạn đang hoạt động bình thường!\n\n_Hệ thống sẽ gửi cảnh báo đến đây khi hạn mức của tài khoản active xuống thấp và bạn có thể bấm nút để đổi tài khoản trực tiếp!_`;
       
       const result = await sendTelegramNotification({
         botToken,
@@ -479,7 +989,8 @@ const server = http.createServer(async (req, res) => {
         replyMarkup: {
           inline_keyboard: [
             [
-              { text: "📱 Mở Codex Switcher", url: dashboardUrl }
+              { text: "📋 Danh sách tài khoản", callback_data: "cmd_list" },
+              { text: "📱 Mở Dashboard", url: DASHBOARD_URL }
             ]
           ]
         }
@@ -498,17 +1009,16 @@ const server = http.createServer(async (req, res) => {
       const payload = await parseRequestBody(req);
       const serverUrl = payload.server || "https://ntfy.sh";
       const topic = payload.topic;
-      const dashboardUrl = "http://100.66.99.92:3210";
       
       const result = await sendNtfyNotification({
         server: serverUrl,
         topic,
-        title: "🔔 Codex Switcher - Test Notification",
+        title: "🔔 Codex Switcher - Thông báo thử nghiệm",
         message: "Cấu hình ntfy.sh của bạn đang hoạt động bình thường!",
         tags: ["white_check_mark", "robot"],
-        clickUrl: dashboardUrl,
+        clickUrl: DASHBOARD_URL,
         actions: [
-          { action: "view", label: "📱 Mở Dashboard", url: dashboardUrl }
+          { action: "view", label: "📱 Mở Dashboard", url: DASHBOARD_URL }
         ]
       });
       res.writeHead(200, { "Content-Type": "application/json" });

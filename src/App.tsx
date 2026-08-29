@@ -256,6 +256,7 @@ function App() {
     ntfy: { enabled: false, topic: "", server: "https://ntfy.sh" },
     threshold: 80,
     cooldownMinutes: 60,
+    autoSwitch: { enabled: false, threshold: 95 },
   });
   const [isTestingTelegram, setIsTestingTelegram] = useState(false);
   const [isDetectingChatId, setIsDetectingChatId] = useState(false);
@@ -2485,6 +2486,62 @@ function App() {
                     </select>
                   </div>
                 </div>
+              </div>
+
+              {/* Auto-Switch Section */}
+              <div className="border border-emerald-200 dark:border-emerald-800/60 rounded-xl p-4 space-y-3 bg-emerald-50/40 dark:bg-emerald-950/20">
+                <div className="flex items-center justify-between">
+                  <div className="flex items-center gap-2">
+                    <span className="text-emerald-600 dark:text-emerald-400 font-bold text-base">🔄 Tự động chuyển tài khoản (Auto-Switch)</span>
+                  </div>
+                  <label className="relative inline-flex items-center cursor-pointer">
+                    <input
+                      type="checkbox"
+                      checked={notificationConfig.autoSwitch?.enabled}
+                      onChange={(e) =>
+                        setNotificationConfig((prev) => ({
+                          ...prev,
+                          autoSwitch: {
+                            ...prev.autoSwitch,
+                            enabled: e.target.checked,
+                          },
+                        }))
+                      }
+                      className="sr-only peer"
+                    />
+                    <div className="w-9 h-5 bg-gray-300 peer-focus:outline-none rounded-full peer dark:bg-gray-700 peer-checked:after:translate-x-full peer-checked:after:border-white after:content-[''] after:absolute after:top-[2px] after:left-[2px] after:bg-white after:border-gray-300 after:border after:rounded-full after:h-4 after:w-4 after:transition-all peer-checked:bg-emerald-600"></div>
+                  </label>
+                </div>
+
+                <p className="text-xs text-gray-600 dark:text-gray-300">
+                  Khi tài khoản đang dùng đạt ngưỡng giới hạn, hệ thống sẽ tự động quét và chuyển sang tài khoản phụ có dung lượng còn nhiều nhất (0% hoặc thấp nhất) và gửi thông báo về Telegram.
+                </p>
+
+                {notificationConfig.autoSwitch?.enabled && (
+                  <div>
+                    <label className="block text-xs font-medium text-gray-700 dark:text-gray-300 mb-1">
+                      Tự động chuyển khi tài khoản active đã dùng đạt:
+                    </label>
+                    <select
+                      value={notificationConfig.autoSwitch?.threshold ?? 95}
+                      onChange={(e) =>
+                        setNotificationConfig((prev) => ({
+                          ...prev,
+                          autoSwitch: {
+                            ...prev.autoSwitch,
+                            threshold: Number(e.target.value),
+                          },
+                        }))
+                      }
+                      className="w-full h-9 px-3 rounded-lg border border-emerald-300 dark:border-emerald-700 bg-white dark:bg-gray-800 text-sm text-gray-900 dark:text-gray-100"
+                    >
+                      <option value={85}>85% (Còn lại 15%)</option>
+                      <option value={90}>90% (Còn lại 10%)</option>
+                      <option value={95}>95% (Còn lại 5%) - Khuyên dùng</option>
+                      <option value={100}>100% (Hết hạn mức hoàn toàn)</option>
+                    </select>
+                  </div>
+                )}
               </div>
             </div>
 
