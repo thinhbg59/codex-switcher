@@ -11,12 +11,12 @@ use tokio::runtime::Runtime;
 
 use crate::commands::{
     add_account_from_auth_json_text, add_account_from_file, cancel_login, check_codex_processes,
-    complete_login, delete_account, export_accounts_full_encrypted_bytes,
+    check_paseo_processes, complete_login, delete_account, export_accounts_full_encrypted_bytes,
     export_accounts_slim_text, fetch_usage, get_account_usage_stats, get_active_account_info,
     get_masked_account_ids, import_accounts_full_encrypted_bytes, import_accounts_slim_text,
-    kill_codex_processes, list_accounts, refresh_account_metadata, refresh_all_accounts_usage,
-    rename_account, set_masked_account_ids, start_login, switch_account, warmup_account,
-    warmup_all_accounts,
+    kill_codex_processes, kill_paseo_processes, list_accounts, open_codex_app, open_paseo_app,
+    refresh_account_metadata, refresh_all_accounts_usage, rename_account, set_masked_account_ids,
+    start_login, switch_account, warmup_account, warmup_all_accounts,
 };
 
 #[derive(Debug, Deserialize)]
@@ -197,6 +197,10 @@ async fn invoke_web_command(command: &str, payload: Value) -> Result<Value, Stri
         }
         "check_codex_processes" => to_json(check_codex_processes().await?),
         "kill_codex_processes" => to_json(kill_codex_processes().await?),
+        "open_codex_app" => to_json(open_codex_app().await?),
+        "check_paseo_processes" => to_json(check_paseo_processes().await?),
+        "kill_paseo_processes" => to_json(kill_paseo_processes().await?),
+        "open_paseo_app" => to_json(open_paseo_app().await?),
         _ => Err(format!("Unsupported web command: {command}")),
     }
 }

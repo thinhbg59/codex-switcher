@@ -1382,3 +1382,180 @@ fn is_windows_codex_shortcut_name(file_name: &str) -> bool {
         || shortcut_name.contains("openai codex")
         || (shortcut_name.contains("openai") && shortcut_name.contains("codex"))
 }
+
+/// Check for running Paseo processes
+#[tauri::command]
+pub async fn check_paseo_processes() -> Result<CodexProcessInfo, String> {
+    let (pids, bg_count) = find_paseo_processes().map_err(|e| e.to_string())?;
+    let count = pids.len();
+
+    Ok(CodexProcessInfo {
+        count,
+        background_count: bg_count,
+        can_switch: count == 0,
+        pids,
+    })
+}
+
+/// Force-close active Paseo processes.
+#[tauri::command]
+pub async fn kill_paseo_processes() -> Result<KillCodexProcessesResult, String> {
+    tokio::task::spawn_blocking(kill_paseo_processes_blocking)
+        .await
+        .map_err(|e| e.to_string())?
+}
+
+fn kill_paseo_processes_blocking() -> Result<KillCodexProcessesResult, String> {
+    let (pids, _) = find_paseo_processes().map_err(|e| e.to_string())?;
+    let targeted_count = pids.len();
+    let mut killed_pids = Vec::new();
+    let mut failed_pids = Vec::new();
+
+    #[cfg(unix)]
+    let snapshot = read_unix_process_snapshot();
+
+    #[cfg(unix)]
+    let targets = expand_process_targets(&pids, snapshot.as_ref());
+
+    #[cfg(windows)]
+    let targets = expand_process_targets(&pids);
+
+    for pid in targets {
+        if force_kill_process(pid) {
+            killed_pids.push(pid);
+        } else {
+            failed_pids.push(pid);
+        }
+    }
+
+    Ok(KillCodexProcessesResult {
+        targeted_count,
+        killed_pids,
+        failed_pids,
+    })
+}
+
+/// Open the Paseo desktop app if it is installed.
+#[tauri::command]
+pub async fn open_paseo_app() -> Result<(), String> {
+    tokio::task::spawn_blocking(open_paseo_app_blocking)
+        .await
+        .map_err(|e| e.to_string())?
+}
+
+fn open_paseo_app_blocking() -> Result<(), String> {
+    #[cfg(target_os = "macos")]
+    {
+        if command_succeeds(Command::new("open").args(["-b", "sh.paseo.desktop"])) {
+            return Ok(());
+        }
+
+        if command_succeeds(Command::new("open").args(["-a", "Paseo"])) {
+            return Ok(());
+        }
+
+        return Err("Paseo app is not installed or could not be opened".to_string());
+    }
+
+    #[cfg(windows)]
+    {
+        if command_succeeds(Command::new("cmd").args(["/C", "start", "paseo:"])) {
+            return Ok(());
+        }
+        if command_succeeds(Command::new("cmd").args(["/C", "start", "Paseo"])) {
+            return Ok(());
+        }
+        return Err("Paseo app is not installed or could not be opened".to_string());
+    }
+
+    #[allow(unreachable_code)]
+    Err("Opening Paseo app is only supported on macOS and Windows".to_string())
+}
+
+/// Find all running Paseo processes. Returns (active_pids, background_count)
+fn find_paseo_processes() -> anyhow::Result<(Vec<u32>, usize)> {
+    #[cfg(unix)]
+    {
+        let mut pids = Vec::new();
+        let bg_count = 0;
+        let process_names = read_unix_process_names();
+
+        let output = Command::new("ps")
+            .args(["-axo", "pid=,command="])
+            .output();
+
+        if let Ok(output) = output {
+            let stdout = String::from_utf8_lossy(&output.stdout);
+            for line in stdout.lines() {
+                let line = line.trim();
+                if line.is_empty() {
+                    continue;
+                }
+
+                let mut parts = line.split_whitespace();
+                let Some(pid_str) = parts.next() else {
+                    continue;
+                };
+                let command = parts.collect::<Vec<_>>().join(" ");
+                if command.is_empty() {
+                    continue;
+                }
+
+                let Ok(pid) = pid_str.parse::<u32>() else {
+                    continue;
+                };
+
+                let lowercase_command = command.to_ascii_lowercase();
+                if lowercase_command.contains("codex-switcher") {
+                    continue;
+                }
+
+                let process_name = process_names.get(&pid).map(String::as_str);
+                let is_paseo = lowercase_command.contains("paseo.app")
+                    || lowercase_command.starts_with("paseo ")
+                    || lowercase_command.contains("/paseo")
+                    || process_name == Some("Paseo")
+                    || process_name == Some("Paseo Helper")
+                    || process_name == Some("Paseo Daemon")
+                    || process_name == Some("Paseo Supervisor");
+
+                if is_paseo {
+                    if pid != std::process::id() && !pids.contains(&pid) {
+                        pids.push(pid);
+                    }
+                }
+            }
+        }
+
+        pids.sort_unstable();
+        pids.dedup();
+
+        return Ok((pids, bg_count));
+    }
+
+    #[cfg(windows)]
+    {
+        let output = Command::new("tasklist")
+            .creation_flags(CREATE_NO_WINDOW)
+            .args(["/FI", "IMAGENAME eq Paseo.exe", "/FO", "CSV", "/NH"])
+            .output();
+
+        let mut pids = Vec::new();
+        if let Ok(output) = output {
+            let stdout = String::from_utf8_lossy(&output.stdout);
+            for line in stdout.lines() {
+                let parts: Vec<&str> = line.split(',').collect();
+                if parts.len() > 1 {
+                    let pid_str = parts[1].trim_matches('"');
+                    if let Ok(pid) = pid_str.parse::<u32>() {
+                        pids.push(pid);
+                    }
+                }
+            }
+        }
+        return Ok((pids, 0));
+    }
+
+    #[allow(unreachable_code)]
+    Ok((Vec::new(), 0))
+}

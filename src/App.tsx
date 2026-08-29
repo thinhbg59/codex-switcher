@@ -1,5 +1,4 @@
 import { useState, useEffect, useCallback, useMemo, useRef } from "react";
-import { getCurrentWindow } from "@tauri-apps/api/window";
 import { useAccounts } from "./hooks/useAccounts";
 import { useForceCloseCodexProcesses } from "./hooks/useForceCloseCodexProcesses";
 import { AccountCard, AddAccountModal, UpdateChecker } from "./components";
@@ -60,7 +59,11 @@ type AutoWarmupLedger = Record<
     lastAutoWindowKind?: AutoWarmupWindowKind;
   }
 >;
-const appWindow = getCurrentWindow();
+async function getAppWindow() {
+  if (!isTauriRuntime()) return null;
+  const { getCurrentWindow } = await import("@tauri-apps/api/window");
+  return getCurrentWindow();
+}
 const isMacOs =
   typeof navigator !== "undefined" &&
   /(Mac|iPhone|iPod|iPad)/i.test(navigator.userAgent);
@@ -194,9 +197,13 @@ function App() {
   const [switchingId, setSwitchingId] = useState<string | null>(null);
   const [deleteConfirmId, setDeleteConfirmId] = useState<string | null>(null);
   const [processInfo, setProcessInfo] = useState<CodexProcessInfo | null>(null);
+  const [paseoProcessInfo, setPaseoProcessInfo] = useState<CodexProcessInfo | null>(null);
   const [pendingTraySwitchAccountId, setPendingTraySwitchAccountId] = useState<string | null>(null);
   const [isRefreshing, setIsRefreshing] = useState(false);
   const [isOpeningCodex, setIsOpeningCodex] = useState(false);
+  const [isOpeningPaseo, setIsOpeningPaseo] = useState(false);
+  const [isForceClosingPaseo, setIsForceClosingPaseo] = useState(false);
+  const [paseoForceCloseConfirmOpen, setPaseoForceCloseConfirmOpen] = useState(false);
   const [isExportingSlim, setIsExportingSlim] = useState(false);
   const [isImportingSlim, setIsImportingSlim] = useState(false);
   const [isExportingFull, setIsExportingFull] = useState(false);
@@ -359,16 +366,18 @@ function App() {
   }, [autoWarmupAccountIds]);
 
   const handleTitlebarDrag = useCallback(
-    (event: React.MouseEvent<HTMLDivElement>) => {
+    async (event: React.MouseEvent<HTMLDivElement>) => {
       if (!isTauriRuntime() || event.button !== 0) return;
-      void appWindow.startDragging();
+      const win = await getAppWindow();
+      void win?.startDragging();
     },
     []
   );
 
-  const handleTitlebarDoubleClick = useCallback(() => {
+  const handleTitlebarDoubleClick = useCallback(async () => {
     if (!isTauriRuntime()) return;
-    void appWindow.toggleMaximize();
+    const win = await getAppWindow();
+    void win?.toggleMaximize();
   }, []);
 
   const toggleMask = (accountId: string) => {
@@ -419,12 +428,38 @@ function App() {
     }
   }, []);
 
+  const checkPaseoProcesses = useCallback(async () => {
+    try {
+      const info = await invokeBackend<CodexProcessInfo>("check_paseo_processes");
+      setPaseoProcessInfo((prev) => {
+        if (
+          prev &&
+          prev.can_switch === info.can_switch &&
+          prev.count === info.count &&
+          prev.pids.length === info.pids.length &&
+          prev.pids.every((pid, index) => pid === info.pids[index])
+        ) {
+          return prev;
+        }
+        return info;
+      });
+      return info;
+    } catch (err) {
+      console.error("Failed to check Paseo processes:", err);
+      return null;
+    }
+  }, []);
+
   // Check processes on mount and periodically
   useEffect(() => {
-    checkProcesses();
-    const interval = setInterval(checkProcesses, 5000);
+    void checkProcesses();
+    void checkPaseoProcesses();
+    const interval = setInterval(() => {
+      void checkProcesses();
+      void checkPaseoProcesses();
+    }, 5000);
     return () => clearInterval(interval);
-  }, [checkProcesses]);
+  }, [checkProcesses, checkPaseoProcesses]);
 
   // Load masked accounts from storage on mount
   useEffect(() => {
@@ -497,26 +532,28 @@ function App() {
 
     let unlisten: (() => void) | undefined;
 
-    const syncMaximizedState = async () => {
+    void (async () => {
+      const win = await getAppWindow();
+      if (!win) return;
+
+      const syncMaximizedState = async () => {
+        try {
+          setIsWindowMaximized(await win.isMaximized());
+        } catch (err) {
+          console.error("Failed to read window state:", err);
+        }
+      };
+
+      void syncMaximizedState();
+
       try {
-        setIsWindowMaximized(await appWindow.isMaximized());
+        unlisten = await win.onResized(() => {
+          void syncMaximizedState();
+        });
       } catch (err) {
-        console.error("Failed to read window state:", err);
-      }
-    };
-
-    void syncMaximizedState();
-
-    appWindow
-      .onResized(() => {
-        void syncMaximizedState();
-      })
-      .then((fn) => {
-        unlisten = fn;
-      })
-      .catch((err) => {
         console.error("Failed to watch window resize:", err);
-      });
+      }
+    })();
 
     return () => {
       unlisten?.();
@@ -1158,9 +1195,43 @@ function App() {
     }
   };
 
+  const handleOpenPaseoApp = async () => {
+    try {
+      setIsOpeningPaseo(true);
+      await invokeBackend("open_paseo_app");
+      showWarmupToast("Paseo app opened.");
+      setTimeout(() => {
+        void checkPaseoProcesses();
+      }, 1500);
+    } catch (err) {
+      console.error("Failed to open Paseo app:", err);
+      showWarmupToast(`Open Paseo failed: ${formatWarmupError(err)}`, true);
+    } finally {
+      setIsOpeningPaseo(false);
+    }
+  };
+
+  const handleForceClosePaseo = async () => {
+    try {
+      setIsForceClosingPaseo(true);
+      await invokeBackend("kill_paseo_processes");
+      const latest = await checkPaseoProcesses();
+      showWarmupToast("Paseo processes force closed.");
+      setPaseoForceCloseConfirmOpen(false);
+      return latest;
+    } catch (err) {
+      console.error("Failed to force close Paseo:", err);
+      showWarmupToast(`Force close Paseo failed: ${formatWarmupError(err)}`, true);
+      return null;
+    } finally {
+      setIsForceClosingPaseo(false);
+    }
+  };
+
   const activeAccount = accounts.find((a) => a.is_active);
   const otherAccounts = accounts.filter((a) => !a.is_active);
-  const hasRunningProcesses = processInfo && processInfo.count > 0;
+  const hasRunningProcesses = Boolean(processInfo && processInfo.count > 0);
+  const hasRunningPaseoProcesses = Boolean(paseoProcessInfo && paseoProcessInfo.count > 0);
   const pendingTraySwitchAccount = useMemo(
     () => accounts.find((account) => account.id === pendingTraySwitchAccountId),
     [accounts, pendingTraySwitchAccountId]
@@ -1280,11 +1351,12 @@ function App() {
             onDoubleClick={handleTitlebarDoubleClick}
             className={`h-full flex-1 select-none cursor-default ${isMacOs ? "ml-18 mr-2" : "mr-3"}`}
           />
-          {!isMacOs && (
+          {!isMacOs && isTauriRuntime() && (
             <div className="flex items-center gap-1">
               <button
-                onClick={() => {
-                  void appWindow.minimize();
+                onClick={async () => {
+                  const win = await getAppWindow();
+                  void win?.minimize();
                 }}
                 className="flex h-8 w-8 items-center justify-center rounded-md text-gray-500 transition-colors hover:bg-gray-100 hover:text-gray-900 dark:text-gray-400 dark:hover:bg-gray-800 dark:hover:text-gray-100"
                 title="Minimize"
@@ -1294,8 +1366,9 @@ function App() {
                 </svg>
               </button>
               <button
-                onClick={() => {
-                  void appWindow.toggleMaximize();
+                onClick={async () => {
+                  const win = await getAppWindow();
+                  void win?.toggleMaximize();
                 }}
                 className="flex h-8 w-8 items-center justify-center rounded-md text-gray-500 transition-colors hover:bg-gray-100 hover:text-gray-900 dark:text-gray-400 dark:hover:bg-gray-800 dark:hover:text-gray-100"
                 title={isWindowMaximized ? "Restore" : "Maximize"}
@@ -1312,8 +1385,9 @@ function App() {
                 )}
               </button>
               <button
-                onClick={() => {
-                  void appWindow.close();
+                onClick={async () => {
+                  const win = await getAppWindow();
+                  void win?.close();
                 }}
                 className="flex h-8 w-8 items-center justify-center rounded-md text-gray-500 transition-colors hover:bg-red-500 hover:text-white dark:text-gray-400 dark:hover:bg-red-500 dark:hover:text-white"
                 title="Close"
@@ -1337,14 +1411,16 @@ function App() {
                   {processInfo && (
                     <div className="inline-flex items-center gap-1">
                       <span
-                        className={`inline-flex items-center gap-1 px-2 py-0.5 rounded-md text-xs border ${hasRunningProcesses
+                        className={`inline-flex items-center gap-1 px-2 py-0.5 rounded-md text-xs border ${
+                          hasRunningProcesses
                             ? "bg-amber-50 text-amber-700 border-amber-200 dark:bg-amber-900/30 dark:text-amber-300 dark:border-amber-700"
                             : "bg-green-50 text-green-700 border-green-200 dark:bg-green-900/30 dark:text-green-300 dark:border-green-700"
-                          }`}
+                        }`}
                       >
                         <span
-                          className={`inline-block w-1.5 h-1.5 rounded-full ${hasRunningProcesses ? "bg-amber-500" : "bg-green-500"
-                            }`}
+                          className={`inline-block w-1.5 h-1.5 rounded-full ${
+                            hasRunningProcesses ? "bg-amber-500" : "bg-green-500"
+                          }`}
                         ></span>
                         <span>
                           {hasRunningProcesses
@@ -1365,17 +1441,59 @@ function App() {
                           Force close
                         </button>
                       )}
+                      {!hasRunningProcesses && (
+                        <button
+                          onClick={handleOpenCodexApp}
+                          disabled={isOpeningCodex}
+                          className="inline-flex items-center rounded-md border border-green-200 bg-green-50 px-2 py-0.5 text-xs font-medium text-green-700 transition-colors hover:bg-green-100 disabled:opacity-50 dark:border-green-800 dark:bg-green-900/20 dark:text-green-300 dark:hover:bg-green-900/30"
+                          title="Open Codex app"
+                        >
+                          {isOpeningCodex ? "Opening..." : "Open Codex"}
+                        </button>
+                      )}
                     </div>
                   )}
-                  {isTauriRuntime() && processInfo && !hasRunningProcesses && (
-                    <button
-                      onClick={handleOpenCodexApp}
-                      disabled={isOpeningCodex}
-                      className="inline-flex items-center rounded-md border border-green-200 bg-green-50 px-2 py-0.5 text-xs font-medium text-green-700 transition-colors hover:bg-green-100 disabled:opacity-50 dark:border-green-800 dark:bg-green-900/20 dark:text-green-300 dark:hover:bg-green-900/30"
-                      title="Open Codex app"
-                    >
-                      {isOpeningCodex ? "Opening..." : "Open Codex"}
-                    </button>
+                  {paseoProcessInfo && (
+                    <div className="inline-flex items-center gap-1">
+                      <span
+                        className={`inline-flex items-center gap-1 px-2 py-0.5 rounded-md text-xs border ${
+                          hasRunningPaseoProcesses
+                            ? "bg-amber-50 text-amber-700 border-amber-200 dark:bg-amber-900/30 dark:text-amber-300 dark:border-amber-700"
+                            : "bg-green-50 text-green-700 border-green-200 dark:bg-green-900/30 dark:text-green-300 dark:border-green-700"
+                        }`}
+                      >
+                        <span
+                          className={`inline-block w-1.5 h-1.5 rounded-full ${
+                            hasRunningPaseoProcesses ? "bg-amber-500" : "bg-green-500"
+                          }`}
+                        ></span>
+                        <span>
+                          {hasRunningPaseoProcesses
+                            ? `${paseoProcessInfo.count} Paseo running`
+                            : "0 Paseo running"}
+                        </span>
+                      </span>
+                      {hasRunningPaseoProcesses && (
+                        <button
+                          onClick={() => setPaseoForceCloseConfirmOpen(true)}
+                          disabled={isForceClosingPaseo}
+                          className="inline-flex items-center rounded-md border border-red-200 bg-red-50 px-2 py-0.5 text-xs font-medium text-red-700 transition-colors hover:bg-red-100 disabled:opacity-50 dark:border-red-800 dark:bg-red-900/20 dark:text-red-300 dark:hover:bg-red-900/30"
+                          title="Force close running Paseo processes"
+                        >
+                          {isForceClosingPaseo ? "Closing..." : "Force close"}
+                        </button>
+                      )}
+                      {!hasRunningPaseoProcesses && (
+                        <button
+                          onClick={handleOpenPaseoApp}
+                          disabled={isOpeningPaseo}
+                          className="inline-flex items-center rounded-md border border-green-200 bg-green-50 px-2 py-0.5 text-xs font-medium text-green-700 transition-colors hover:bg-green-100 disabled:opacity-50 dark:border-green-800 dark:bg-green-900/20 dark:text-green-300 dark:hover:bg-green-900/30"
+                          title="Open Paseo app"
+                        >
+                          {isOpeningPaseo ? "Opening..." : "Open Paseo"}
+                        </button>
+                      )}
+                    </div>
                   )}
                 </div>
               </div>
@@ -1947,6 +2065,43 @@ function App() {
                 {isForceClosingCodex
                   ? "Force closing..."
                   : forceCloseConfirmLabel}
+              </button>
+            </div>
+          </div>
+        </div>
+      )}
+
+      {paseoForceCloseConfirmOpen && (
+        <div className="fixed inset-0 bg-black/40 flex items-center justify-center z-50">
+          <div className="bg-white dark:bg-gray-900 border border-gray-200 dark:border-gray-700 rounded-2xl w-full max-w-md mx-4 shadow-xl">
+            <div className="p-5 border-b border-gray-100 dark:border-gray-800">
+              <h2 className="text-lg font-semibold text-gray-900 dark:text-gray-100">
+                Force close running Paseo processes?
+              </h2>
+            </div>
+            <div className="p-5 space-y-3">
+              <p className="text-sm text-gray-600 dark:text-gray-300">
+                This will force close {paseoProcessInfo?.count ?? 0} running Paseo process
+                {(paseoProcessInfo?.count ?? 0) === 1 ? "" : "es"}.
+              </p>
+              <p className="text-sm text-red-600 dark:text-red-300">
+                Unsaved Paseo work may be lost.
+              </p>
+            </div>
+            <div className="flex justify-end gap-3 p-5 border-t border-gray-100 dark:border-gray-800">
+              <button
+                onClick={() => setPaseoForceCloseConfirmOpen(false)}
+                disabled={isForceClosingPaseo}
+                className="px-4 py-2.5 text-sm font-medium rounded-lg bg-gray-100 hover:bg-gray-200 dark:bg-gray-800 dark:hover:bg-gray-700 text-gray-700 dark:text-gray-200 transition-colors disabled:opacity-50"
+              >
+                Cancel
+              </button>
+              <button
+                onClick={() => void handleForceClosePaseo()}
+                disabled={isForceClosingPaseo}
+                className="px-4 py-2.5 text-sm font-medium rounded-lg bg-red-600 hover:bg-red-700 text-white transition-colors disabled:opacity-50"
+              >
+                {isForceClosingPaseo ? "Force closing..." : "Force close Paseo"}
               </button>
             </div>
           </div>
