@@ -422,6 +422,38 @@ const server = http.createServer(async (req, res) => {
     return;
   }
 
+  if (url.pathname === "/api/invoke/get_telegram_chat_id") {
+    try {
+      const payload = await parseRequestBody(req);
+      const botToken = payload.botToken;
+      if (!botToken) throw new Error("Vui lòng nhập Bot Token trước");
+      const url = `https://api.telegram.org/bot${botToken}/getUpdates`;
+      const tgRes = await fetch(url);
+      const tgData = await tgRes.json();
+      if (!tgData.ok) {
+        throw new Error(tgData.description || `Lỗi Telegram API (${tgRes.status})`);
+      }
+      const updates = tgData.result || [];
+      if (updates.length === 0) {
+        throw new Error("Chưa nhận được tin nhắn nào. Hãy mở Bot trên Telegram và bấm START hoặc gửi 1 tin nhắn bất kỳ cho Bot trước!");
+      }
+      const last = updates[updates.length - 1];
+      const chat = last.message?.chat || last.my_chat_member?.chat || last.channel_post?.chat || last.callback_query?.message?.chat;
+      if (!chat || !chat.id) {
+        throw new Error("Không tìm thấy Chat ID. Hãy gửi tin nhắn mới cho Bot rồi bấm lại!");
+      }
+      res.writeHead(200, { "Content-Type": "application/json" });
+      res.end(JSON.stringify({
+        chatId: String(chat.id),
+        name: chat.first_name || chat.title || chat.username || "",
+      }));
+    } catch (err) {
+      res.writeHead(500, { "Content-Type": "application/json" });
+      res.end(JSON.stringify({ error: err.message }));
+    }
+    return;
+  }
+
   if (url.pathname === "/api/invoke/test_telegram_notification") {
     try {
       const payload = await parseRequestBody(req);

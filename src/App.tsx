@@ -258,6 +258,7 @@ function App() {
     cooldownMinutes: 60,
   });
   const [isTestingTelegram, setIsTestingTelegram] = useState(false);
+  const [isDetectingChatId, setIsDetectingChatId] = useState(false);
   const [isTestingNtfy, setIsTestingNtfy] = useState(false);
   const [isSavingNotification, setIsSavingNotification] = useState(false);
   const actionsMenuRef = useRef<HTMLDivElement | null>(null);
@@ -1295,6 +1296,31 @@ function App() {
     }
   };
 
+  const handleAutoDetectChatId = async () => {
+    if (!notificationConfig.telegram.botToken) {
+      showWarmupToast("Vui lòng nhập Bot Token trước!", true);
+      return;
+    }
+    try {
+      setIsDetectingChatId(true);
+      const res = await invokeBackend<{ chatId: string; name?: string }>("get_telegram_chat_id", {
+        botToken: notificationConfig.telegram.botToken,
+      });
+      if (res?.chatId) {
+        setNotificationConfig((prev) => ({
+          ...prev,
+          telegram: { ...prev.telegram, chatId: res.chatId },
+        }));
+        showWarmupToast(`Đã tìm thấy Chat ID: ${res.chatId} (${res.name || "User"})!`);
+      }
+    } catch (err) {
+      console.error("Auto detect Chat ID failed:", err);
+      showWarmupToast(`Tìm Chat ID thất bại: ${formatWarmupError(err)}`, true);
+    } finally {
+      setIsDetectingChatId(false);
+    }
+  };
+
   const handleTestNtfy = async () => {
     if (!notificationConfig.ntfy.topic) {
       showWarmupToast("Vui lòng nhập ntfy Topic!", true);
@@ -2294,12 +2320,23 @@ function App() {
                   </div>
 
                   <div>
-                    <label className="block text-xs font-medium text-gray-700 dark:text-gray-300 mb-1">
-                      Chat ID
-                    </label>
+                    <div className="flex items-center justify-between mb-1">
+                      <label className="text-xs font-medium text-gray-700 dark:text-gray-300">
+                        Chat ID
+                      </label>
+                      <button
+                        type="button"
+                        onClick={handleAutoDetectChatId}
+                        disabled={isDetectingChatId || !notificationConfig.telegram.botToken}
+                        className="text-[11px] text-blue-600 hover:text-blue-700 dark:text-blue-400 font-medium flex items-center gap-1 disabled:opacity-50"
+                        title="Tự động lấy Chat ID từ tin nhắn mới nhất bạn gửi cho Bot"
+                      >
+                        {isDetectingChatId ? "Đang tìm..." : "🔍 Tự động lấy Chat ID"}
+                      </button>
+                    </div>
                     <input
                       type="text"
-                      placeholder="123456789"
+                      placeholder="Nhập ID hoặc bấm 'Tự động lấy Chat ID'"
                       value={notificationConfig.telegram.chatId}
                       onChange={(e) =>
                         setNotificationConfig((prev) => ({
@@ -2309,9 +2346,12 @@ function App() {
                       }
                       className="w-full h-8 px-3 rounded-lg border border-gray-300 dark:border-gray-600 bg-white dark:bg-gray-800 text-xs font-mono text-gray-900 dark:text-gray-100 focus:outline-none focus:border-blue-500"
                     />
-                    <p className="text-[11px] text-gray-400 dark:text-gray-500 mt-1">
-                      Lấy Chat ID của bạn qua <a href="https://t.me/userinfobot" target="_blank" rel="noreferrer" className="text-blue-500 underline">@userinfobot</a> (hoặc gửi <code>/start</code> cho Bot).
-                    </p>
+                    <div className="mt-1.5 p-2 rounded-lg bg-blue-50/70 dark:bg-blue-950/30 border border-blue-100 dark:border-blue-900 text-[11px] text-blue-800 dark:text-blue-300 space-y-1">
+                      <p className="font-semibold">💡 Cách lấy Chat ID dễ nhất:</p>
+                      <p>1. Mở Bot vừa tạo trên Telegram và bấm <b>START</b> (hoặc gửi <code>/start</code>).</p>
+                      <p>2. Bấm nút <b>"🔍 Tự động lấy Chat ID"</b> ở trên để hệ thống tự điền ID cho bạn!</p>
+                      <p className="text-[10px] text-gray-500 dark:text-gray-400"><i>(Lưu ý: ID dạng 888111... trong idbot là ID của con Bot, Chat ID gửi tin nhắn phải là ID cá nhân của bạn).</i></p>
+                    </div>
                   </div>
 
                   <div className="pt-1 flex justify-end">
