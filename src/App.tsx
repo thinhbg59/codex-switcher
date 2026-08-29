@@ -250,6 +250,16 @@ function App() {
   >("deadline_asc");
   const [isActionsMenuOpen, setIsActionsMenuOpen] = useState(false);
   const [isNavMenuOpen, setIsNavMenuOpen] = useState(false);
+  const [isNotificationModalOpen, setIsNotificationModalOpen] = useState(false);
+  const [notificationConfig, setNotificationConfig] = useState({
+    telegram: { enabled: false, botToken: "", chatId: "" },
+    ntfy: { enabled: false, topic: "", server: "https://ntfy.sh" },
+    threshold: 80,
+    cooldownMinutes: 60,
+  });
+  const [isTestingTelegram, setIsTestingTelegram] = useState(false);
+  const [isTestingNtfy, setIsTestingNtfy] = useState(false);
+  const [isSavingNotification, setIsSavingNotification] = useState(false);
   const actionsMenuRef = useRef<HTMLDivElement | null>(null);
   const navMenuRef = useRef<HTMLDivElement | null>(null);
   const [themeMode, setThemeMode] = useState<ThemeMode>(readStoredTheme);
@@ -469,6 +479,12 @@ function App() {
         setMaskedAccounts(new Set(ids));
       }
     });
+
+    invokeBackend<typeof notificationConfig>("get_notification_config").then((config) => {
+      if (config) {
+        setNotificationConfig(config);
+      }
+    }).catch(() => {});
   }, [loadMaskedAccountIds]);
 
   useEffect(() => {
@@ -1245,6 +1261,60 @@ function App() {
     }
   };
 
+  const handleSaveNotificationConfig = async () => {
+    try {
+      setIsSavingNotification(true);
+      await invokeBackend("save_notification_config", notificationConfig);
+      showWarmupToast("Đã lưu cài đặt thông báo!");
+      setIsNotificationModalOpen(false);
+    } catch (err) {
+      console.error("Failed to save notification config:", err);
+      showWarmupToast(`Lưu thất bại: ${formatWarmupError(err)}`, true);
+    } finally {
+      setIsSavingNotification(false);
+    }
+  };
+
+  const handleTestTelegram = async () => {
+    if (!notificationConfig.telegram.botToken || !notificationConfig.telegram.chatId) {
+      showWarmupToast("Vui lòng nhập Bot Token và Chat ID!", true);
+      return;
+    }
+    try {
+      setIsTestingTelegram(true);
+      await invokeBackend("test_telegram_notification", {
+        botToken: notificationConfig.telegram.botToken,
+        chatId: notificationConfig.telegram.chatId,
+      });
+      showWarmupToast("Đã gửi tin nhắn thử nghiệm Telegram thành công!");
+    } catch (err) {
+      console.error("Telegram test failed:", err);
+      showWarmupToast(`Gửi test thất bại: ${formatWarmupError(err)}`, true);
+    } finally {
+      setIsTestingTelegram(false);
+    }
+  };
+
+  const handleTestNtfy = async () => {
+    if (!notificationConfig.ntfy.topic) {
+      showWarmupToast("Vui lòng nhập ntfy Topic!", true);
+      return;
+    }
+    try {
+      setIsTestingNtfy(true);
+      await invokeBackend("test_ntfy_notification", {
+        topic: notificationConfig.ntfy.topic,
+        server: notificationConfig.ntfy.server,
+      });
+      showWarmupToast("Đã gửi thông báo thử nghiệm ntfy.sh thành công!");
+    } catch (err) {
+      console.error("ntfy test failed:", err);
+      showWarmupToast(`Gửi test thất bại: ${formatWarmupError(err)}`, true);
+    } finally {
+      setIsTestingNtfy(false);
+    }
+  };
+
   const activeAccount = accounts.find((a) => a.is_active);
   const otherAccounts = accounts.filter((a) => !a.is_active);
   const hasRunningProcesses = Boolean(processInfo && processInfo.count > 0);
@@ -1646,6 +1716,28 @@ function App() {
                         }`}
                       >
                         {timedWarmupLabel}
+                      </span>
+                    </button>
+                    <button
+                      onClick={() => {
+                        setIsNavMenuOpen(false);
+                        setIsNotificationModalOpen(true);
+                      }}
+                      className="flex w-full items-center justify-between gap-2 rounded-lg px-3 py-2 text-left text-sm transition-colors hover:bg-gray-100 dark:text-white dark:hover:bg-neutral-900"
+                    >
+                      <span>Notifications</span>
+                      <span
+                        className={`rounded-md px-1.5 py-0.5 text-[11px] font-medium ${
+                          notificationConfig.telegram.enabled || notificationConfig.ntfy.enabled
+                            ? "bg-emerald-50 text-emerald-700 dark:bg-emerald-900/30 dark:text-emerald-300"
+                            : "bg-gray-100 text-gray-500 dark:bg-gray-800 dark:text-gray-400"
+                        }`}
+                      >
+                        {notificationConfig.telegram.enabled
+                          ? "Telegram: On"
+                          : notificationConfig.ntfy.enabled
+                          ? "ntfy: On"
+                          : "Off"}
                       </span>
                     </button>
                     <button
@@ -2129,6 +2221,246 @@ function App() {
                 className="px-4 py-2.5 text-sm font-medium rounded-lg bg-red-600 hover:bg-red-700 text-white transition-colors disabled:opacity-50"
               >
                 {isForceClosingPaseo ? "Force closing..." : "Force close Paseo"}
+              </button>
+            </div>
+          </div>
+        </div>
+      )}
+
+      {isNotificationModalOpen && (
+        <div className="fixed inset-0 bg-black/40 flex items-center justify-center z-50 p-4">
+          <div className="bg-white dark:bg-gray-900 border border-gray-200 dark:border-gray-700 rounded-2xl w-full max-w-lg shadow-xl overflow-hidden flex flex-col max-h-[90vh]">
+            <div className="p-5 border-b border-gray-100 dark:border-gray-800 flex items-center justify-between">
+              <div>
+                <h2 className="text-lg font-semibold text-gray-900 dark:text-gray-100 flex items-center gap-2">
+                  <span>🔔</span> Cài đặt thông báo hạn mức
+                </h2>
+                <p className="text-xs text-gray-500 dark:text-gray-400 mt-0.5">
+                  Nhận cảnh báo qua Telegram hoặc ntfy khi tài khoản active sắp hết hạn mức
+                </p>
+              </div>
+              <button
+                onClick={() => setIsNotificationModalOpen(false)}
+                className="text-gray-400 hover:text-gray-600 dark:hover:text-gray-200 text-lg font-bold"
+              >
+                ✕
+              </button>
+            </div>
+
+            <div className="p-5 overflow-y-auto space-y-6 flex-1 text-sm">
+              {/* Telegram Section */}
+              <div className="border border-gray-200 dark:border-gray-700 rounded-xl p-4 space-y-3 bg-gray-50/50 dark:bg-gray-800/30">
+                <div className="flex items-center justify-between">
+                  <div className="flex items-center gap-2">
+                    <span className="text-blue-500 font-bold text-base">✈️ Telegram Bot</span>
+                    <span className="text-[11px] bg-blue-100 text-blue-700 dark:bg-blue-900/40 dark:text-blue-300 px-2 py-0.5 rounded-full font-medium">Khuyên dùng</span>
+                  </div>
+                  <label className="relative inline-flex items-center cursor-pointer">
+                    <input
+                      type="checkbox"
+                      checked={notificationConfig.telegram.enabled}
+                      onChange={(e) =>
+                        setNotificationConfig((prev) => ({
+                          ...prev,
+                          telegram: { ...prev.telegram, enabled: e.target.checked },
+                        }))
+                      }
+                      className="sr-only peer"
+                    />
+                    <div className="w-9 h-5 bg-gray-300 peer-focus:outline-none rounded-full peer dark:bg-gray-700 peer-checked:after:translate-x-full peer-checked:after:border-white after:content-[''] after:absolute after:top-[2px] after:left-[2px] after:bg-white after:border-gray-300 after:border after:rounded-full after:h-4 after:w-4 after:transition-all peer-checked:bg-blue-600"></div>
+                  </label>
+                </div>
+
+                <div className="space-y-3">
+                  <div>
+                    <label className="block text-xs font-medium text-gray-700 dark:text-gray-300 mb-1">
+                      Bot Token
+                    </label>
+                    <input
+                      type="text"
+                      placeholder="123456789:ABCdefGhIJKlmNoPQRsTUVwxyZ"
+                      value={notificationConfig.telegram.botToken}
+                      onChange={(e) =>
+                        setNotificationConfig((prev) => ({
+                          ...prev,
+                          telegram: { ...prev.telegram, botToken: e.target.value },
+                        }))
+                      }
+                      className="w-full h-8 px-3 rounded-lg border border-gray-300 dark:border-gray-600 bg-white dark:bg-gray-800 text-xs font-mono text-gray-900 dark:text-gray-100 focus:outline-none focus:border-blue-500"
+                    />
+                    <p className="text-[11px] text-gray-400 dark:text-gray-500 mt-1">
+                      Lấy từ <a href="https://t.me/BotFather" target="_blank" rel="noreferrer" className="text-blue-500 underline">@BotFather</a> khi tạo bot mới.
+                    </p>
+                  </div>
+
+                  <div>
+                    <label className="block text-xs font-medium text-gray-700 dark:text-gray-300 mb-1">
+                      Chat ID
+                    </label>
+                    <input
+                      type="text"
+                      placeholder="123456789"
+                      value={notificationConfig.telegram.chatId}
+                      onChange={(e) =>
+                        setNotificationConfig((prev) => ({
+                          ...prev,
+                          telegram: { ...prev.telegram, chatId: e.target.value },
+                        }))
+                      }
+                      className="w-full h-8 px-3 rounded-lg border border-gray-300 dark:border-gray-600 bg-white dark:bg-gray-800 text-xs font-mono text-gray-900 dark:text-gray-100 focus:outline-none focus:border-blue-500"
+                    />
+                    <p className="text-[11px] text-gray-400 dark:text-gray-500 mt-1">
+                      Lấy Chat ID của bạn qua <a href="https://t.me/userinfobot" target="_blank" rel="noreferrer" className="text-blue-500 underline">@userinfobot</a> (hoặc gửi <code>/start</code> cho Bot).
+                    </p>
+                  </div>
+
+                  <div className="pt-1 flex justify-end">
+                    <button
+                      onClick={handleTestTelegram}
+                      disabled={isTestingTelegram || !notificationConfig.telegram.botToken || !notificationConfig.telegram.chatId}
+                      className="px-3 py-1.5 rounded-lg bg-blue-50 text-blue-700 hover:bg-blue-100 dark:bg-blue-900/30 dark:text-blue-300 dark:hover:bg-blue-900/50 border border-blue-200 dark:border-blue-800 text-xs font-medium transition-colors disabled:opacity-50"
+                    >
+                      {isTestingTelegram ? "Đang gửi thử..." : "✈️ Gửi tin nhắn thử (Test)"}
+                    </button>
+                  </div>
+                </div>
+              </div>
+
+              {/* ntfy Section */}
+              <div className="border border-gray-200 dark:border-gray-700 rounded-xl p-4 space-y-3 bg-gray-50/50 dark:bg-gray-800/30">
+                <div className="flex items-center justify-between">
+                  <div className="flex items-center gap-2">
+                    <span className="text-purple-600 font-bold text-base">📡 ntfy.sh</span>
+                  </div>
+                  <label className="relative inline-flex items-center cursor-pointer">
+                    <input
+                      type="checkbox"
+                      checked={notificationConfig.ntfy.enabled}
+                      onChange={(e) =>
+                        setNotificationConfig((prev) => ({
+                          ...prev,
+                          ntfy: { ...prev.ntfy, enabled: e.target.checked },
+                        }))
+                      }
+                      className="sr-only peer"
+                    />
+                    <div className="w-9 h-5 bg-gray-300 peer-focus:outline-none rounded-full peer dark:bg-gray-700 peer-checked:after:translate-x-full peer-checked:after:border-white after:content-[''] after:absolute after:top-[2px] after:left-[2px] after:bg-white after:border-gray-300 after:border after:rounded-full after:h-4 after:w-4 after:transition-all peer-checked:bg-purple-600"></div>
+                  </label>
+                </div>
+
+                <div className="space-y-3">
+                  <div>
+                    <label className="block text-xs font-medium text-gray-700 dark:text-gray-300 mb-1">
+                      Topic
+                    </label>
+                    <input
+                      type="text"
+                      placeholder="codex_alerts_myname"
+                      value={notificationConfig.ntfy.topic}
+                      onChange={(e) =>
+                        setNotificationConfig((prev) => ({
+                          ...prev,
+                          ntfy: { ...prev.ntfy, topic: e.target.value },
+                        }))
+                      }
+                      className="w-full h-8 px-3 rounded-lg border border-gray-300 dark:border-gray-600 bg-white dark:bg-gray-800 text-xs font-mono text-gray-900 dark:text-gray-100 focus:outline-none focus:border-purple-500"
+                    />
+                  </div>
+
+                  <div>
+                    <label className="block text-xs font-medium text-gray-700 dark:text-gray-300 mb-1">
+                      Server URL
+                    </label>
+                    <input
+                      type="text"
+                      placeholder="https://ntfy.sh"
+                      value={notificationConfig.ntfy.server}
+                      onChange={(e) =>
+                        setNotificationConfig((prev) => ({
+                          ...prev,
+                          ntfy: { ...prev.ntfy, server: e.target.value },
+                        }))
+                      }
+                      className="w-full h-8 px-3 rounded-lg border border-gray-300 dark:border-gray-600 bg-white dark:bg-gray-800 text-xs font-mono text-gray-900 dark:text-gray-100 focus:outline-none focus:border-purple-500"
+                    />
+                  </div>
+
+                  <div className="pt-1 flex justify-end">
+                    <button
+                      onClick={handleTestNtfy}
+                      disabled={isTestingNtfy || !notificationConfig.ntfy.topic}
+                      className="px-3 py-1.5 rounded-lg bg-purple-50 text-purple-700 hover:bg-purple-100 dark:bg-purple-900/30 dark:text-purple-300 dark:hover:bg-purple-900/50 border border-purple-200 dark:border-purple-800 text-xs font-medium transition-colors disabled:opacity-50"
+                    >
+                      {isTestingNtfy ? "Đang gửi thử..." : "📡 Gửi thử ntfy"}
+                    </button>
+                  </div>
+                </div>
+              </div>
+
+              {/* Alert Conditions */}
+              <div className="border border-gray-200 dark:border-gray-700 rounded-xl p-4 space-y-3">
+                <h3 className="text-xs font-semibold uppercase tracking-wider text-gray-500 dark:text-gray-400">
+                  Điều kiện cảnh báo
+                </h3>
+                <div className="grid grid-cols-1 sm:grid-cols-2 gap-4">
+                  <div>
+                    <label className="block text-xs font-medium text-gray-700 dark:text-gray-300 mb-1">
+                      Báo khi đã dùng đến:
+                    </label>
+                    <select
+                      value={notificationConfig.threshold}
+                      onChange={(e) =>
+                        setNotificationConfig((prev) => ({
+                          ...prev,
+                          threshold: Number(e.target.value),
+                        }))
+                      }
+                      className="w-full h-9 px-3 rounded-lg border border-gray-300 dark:border-gray-600 bg-white dark:bg-gray-800 text-sm text-gray-900 dark:text-gray-100"
+                    >
+                      <option value={70}>70% (Còn lại 30%)</option>
+                      <option value={75}>75% (Còn lại 25%)</option>
+                      <option value={80}>80% (Còn lại 20%) - Khuyên dùng</option>
+                      <option value={85}>85% (Còn lại 15%)</option>
+                      <option value={90}>90% (Còn lại 10%)</option>
+                    </select>
+                  </div>
+
+                  <div>
+                    <label className="block text-xs font-medium text-gray-700 dark:text-gray-300 mb-1">
+                      Khoảng cách lặp lại:
+                    </label>
+                    <select
+                      value={notificationConfig.cooldownMinutes}
+                      onChange={(e) =>
+                        setNotificationConfig((prev) => ({
+                          ...prev,
+                          cooldownMinutes: Number(e.target.value),
+                        }))
+                      }
+                      className="w-full h-9 px-3 rounded-lg border border-gray-300 dark:border-gray-600 bg-white dark:bg-gray-800 text-sm text-gray-900 dark:text-gray-100"
+                    >
+                      <option value={30}>30 phút / lần</option>
+                      <option value={60}>60 phút / lần - Mặc định</option>
+                      <option value={120}>120 phút / lần</option>
+                    </select>
+                  </div>
+                </div>
+              </div>
+            </div>
+
+            <div className="p-4 border-t border-gray-100 dark:border-gray-800 flex justify-end gap-3 bg-gray-50 dark:bg-gray-900/50">
+              <button
+                onClick={() => setIsNotificationModalOpen(false)}
+                className="px-4 py-2 text-sm font-medium rounded-lg bg-gray-100 hover:bg-gray-200 dark:bg-gray-800 dark:hover:bg-gray-700 text-gray-700 dark:text-gray-200 transition-colors"
+              >
+                Hủy
+              </button>
+              <button
+                onClick={handleSaveNotificationConfig}
+                disabled={isSavingNotification}
+                className="px-5 py-2 text-sm font-medium rounded-lg bg-blue-600 hover:bg-blue-700 text-white transition-colors disabled:opacity-50"
+              >
+                {isSavingNotification ? "Đang lưu..." : "Lưu cài đặt"}
               </button>
             </div>
           </div>
