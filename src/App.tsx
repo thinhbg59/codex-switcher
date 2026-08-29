@@ -258,6 +258,7 @@ function App() {
     cooldownMinutes: 60,
     autoSwitch: { enabled: false, threshold: 95 },
     autoResumePaseo: true,
+    resumePrompt: "tiếp tục",
   });
   const [isTestingTelegram, setIsTestingTelegram] = useState(false);
   const [isDetectingChatId, setIsDetectingChatId] = useState(false);
@@ -1294,19 +1295,22 @@ function App() {
   const handleAutoResumePaseo = async (agentId?: string, restartPaseo = false) => {
     try {
       setIsAutoResumingPaseo(true);
-      showWarmupToast("Đang phát hiện lỗi, đổi tài khoản và tiếp tục chat Paseo...");
+      const prompt = notificationConfig.resumePrompt?.trim() || "tiếp tục";
+      showWarmupToast(`Đang phát hiện lỗi, đổi tài khoản và gửi "${prompt}"...`);
       const res = await invokeBackend<{
         ok: boolean;
         result?: {
-          targetAgent?: { title?: string; id: string };
+          targetAgents?: Array<{ title?: string; id: string }>;
+          resumedCount?: number;
           switchedTo: { name: string };
           messageSent: boolean;
         };
-      }>("auto_resume_paseo", { agentId, restartPaseo });
+      }>("auto_resume_paseo", { agentId, restartPaseo, message: prompt });
 
       if (res?.result) {
+        const count = res.result.resumedCount || 1;
         showWarmupToast(
-          `Đã chuyển sang ${res.result.switchedTo.name} & gửi "tiếp tục" trên Paseo!`
+          `Đã chuyển sang ${res.result.switchedTo.name} & tiếp tục ${count} tab trên Paseo!`
         );
       } else {
         showWarmupToast("Đã khôi phục và tiếp tục Paseo thành công!");
@@ -2651,8 +2655,31 @@ function App() {
                   </label>
                 </div>
                 <p className="text-xs text-gray-600 dark:text-gray-300">
-                  Khi Paseo báo lỗi "You’ve hit your usage limit", hệ thống sẽ tự động chuyển sang tài khoản mới, tải lại cấu hình daemon trong chớp mắt và tự động gửi tin nhắn <strong>tiếp tục</strong> vào đúng cuộc trò chuyện đang làm dở.
+                  Khi Paseo báo lỗi "You’ve hit your usage limit", hệ thống sẽ tự động chuyển sang tài khoản mới, tải lại cấu hình daemon trong chớp mắt và tự động gửi tin nhắn tiếp tục vào đúng các cuộc trò chuyện đang làm dở.
                 </p>
+
+                {notificationConfig.autoResumePaseo && (
+                  <div className="pt-1 border-t border-purple-200/60 dark:border-purple-800/60">
+                    <label className="block text-xs font-semibold text-purple-900 dark:text-purple-200 mb-1">
+                      Tin nhắn gửi đi khi tiếp tục (Resume Prompt):
+                    </label>
+                    <input
+                      type="text"
+                      value={notificationConfig.resumePrompt ?? "tiếp tục"}
+                      onChange={(e) =>
+                        setNotificationConfig((prev) => ({
+                          ...prev,
+                          resumePrompt: e.target.value,
+                        }))
+                      }
+                      placeholder="tiếp tục"
+                      className="w-full h-9 px-3 rounded-lg border border-purple-300 dark:border-purple-700 bg-white dark:bg-gray-800 text-sm text-gray-900 dark:text-gray-100 placeholder-gray-400 focus:outline-none focus:ring-2 focus:ring-purple-500"
+                    />
+                    <p className="text-[11px] text-purple-700 dark:text-purple-300 mt-1">
+                      Mặc định là <code className="px-1 py-0.5 rounded bg-purple-100 dark:bg-purple-900/40">tiếp tục</code>. Bạn có thể đổi thành <code className="px-1 py-0.5 rounded bg-purple-100 dark:bg-purple-900/40">tiếp tục công việc</code>, <code className="px-1 py-0.5 rounded bg-purple-100 dark:bg-purple-900/40">continue</code>, v.v.
+                    </p>
+                  </div>
+                )}
               </div>
             </div>
 

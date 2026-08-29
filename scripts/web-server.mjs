@@ -129,6 +129,7 @@ function readNotificationConfig() {
           threshold: typeof data.autoSwitch?.threshold === "number" ? data.autoSwitch.threshold : 95,
         },
         autoResumePaseo: data.autoResumePaseo !== undefined ? Boolean(data.autoResumePaseo) : true,
+        resumePrompt: typeof data.resumePrompt === "string" && data.resumePrompt.trim() ? data.resumePrompt.trim() : "tiếp tục",
       };
     }
   } catch (err) {
@@ -141,6 +142,7 @@ function readNotificationConfig() {
     cooldownMinutes: 60,
     autoSwitch: { enabled: false, threshold: 95 },
     autoResumePaseo: true,
+    resumePrompt: "tiếp tục",
   };
 }
 
@@ -424,7 +426,12 @@ async function hotReloadAccountForPaseo(targetAccountId = null) {
   };
 }
 
-async function autoResumePaseoTask({ targetAgentId = null, targetAccountId = null, promptMessage = "tiếp tục", restartPaseo = false } = {}) {
+async function autoResumePaseoTask({ targetAgentId = null, targetAccountId = null, promptMessage = null, restartPaseo = false } = {}) {
+  const config = readNotificationConfig();
+  const effectivePrompt = (typeof promptMessage === "string" && promptMessage.trim())
+    ? promptMessage.trim()
+    : (config.resumePrompt || "tiếp tục");
+
   // 1. Detect ALL target agents with quota errors
   let targetAgents = [];
   const erroredList = detectPaseoQuotaErrors();
@@ -457,8 +464,8 @@ async function autoResumePaseoTask({ targetAgentId = null, targetAccountId = nul
     let messageSent = false;
     let sendError = null;
     try {
-      console.log(`[PaseoAutoResume] Sending prompt "${promptMessage}" to agent ${agent.id} (${agent.title || ""})...`);
-      await execAsync(`"${PASEO_CLI_PATH}" send ${agent.id} "${promptMessage.replace(/"/g, '\\"')}" --no-wait`);
+      console.log(`[PaseoAutoResume] Sending prompt "${effectivePrompt}" to agent ${agent.id} (${agent.title || ""})...`);
+      await execAsync(`"${PASEO_CLI_PATH}" send ${agent.id} "${effectivePrompt.replace(/"/g, '\\"')}" --no-wait`);
       messageSent = true;
       console.log(`[PaseoAutoResume] Prompt sent successfully to agent ${agent.id}`);
     } catch (err) {
@@ -470,13 +477,12 @@ async function autoResumePaseoTask({ targetAgentId = null, targetAccountId = nul
   }
 
   // 4. Notify via Telegram & ntfy
-  const config = readNotificationConfig();
   if (config.telegram?.enabled && config.telegram?.botToken && config.telegram?.chatId) {
     const resumedListText = results.length > 0
       ? results.map((r, i) => `${i + 1}. \`${r.agent.title || r.agent.id}\``).join("\n")
       : "_Tất cả các tab_";
 
-    const tgMsg = `🚀 *ĐÃ TỰ ĐỘNG KHÔI PHỤC ${results.length} CUỘC TRÒ CHUYỆN TRÊN PASEO!*\n\n📝 *Các tab được tiếp tục:*\n${resumedListText}\n\n✅ *Tài khoản mới:* \`${switchedTo.name}\` (Còn *${newRemaining.toFixed(0)}%* quota)\n💬 *Tin nhắn gửi đi:* \`${promptMessage}\`\n\n👉 _Paseo đang tiếp tục xử lý song song tất cả các tab!_`;
+    const tgMsg = `🚀 *ĐÃ TỰ ĐỘNG KHÔI PHỤC ${results.length} CUỘC TRÒ CHUYỆN TRÊN PASEO!*\n\n📝 *Các tab được tiếp tục:*\n${resumedListText}\n\n✅ *Tài khoản mới:* \`${switchedTo.name}\` (Còn *${newRemaining.toFixed(0)}%* quota)\n💬 *Tin nhắn gửi đi:* \`${effectivePrompt}\`\n\n👉 _Paseo đang tiếp tục xử lý song song tất cả các tab!_`;
 
     await sendTelegramNotification({
       botToken: config.telegram.botToken,
@@ -741,8 +747,21 @@ async function handleTelegramMessage(msg, botToken, config) {
   }
 
   // 2. /resume_paseo, /continue_paseo, /tieptuc
-  if (lower === "/resume_paseo" || lower === "/continue_paseo" || lower === "/tieptuc" || lower === "tieptuc") {
-    await performAutoResumePaseoNotify(botToken, chatId, null);
+  if (
+    lower === "/resume_paseo" ||
+    lower === "/continue_paseo" ||
+    lower === "/tieptuc" ||
+    lower === "tieptuc" ||
+    lower.startsWith("/resume_paseo ") ||
+    lower.startsWith("/continue_paseo ") ||
+    lower.startsWith("/tieptuc ")
+  ) {
+    let customPrompt = null;
+    const match = text.match(/^\/(?:resume_paseo|continue_paseo|tieptuc)\s+(.+)$/i);
+    if (match && match[1].trim()) {
+      customPrompt = match[1].trim();
+    }
+    await performAutoResumePaseoNotify(botToken, chatId, null, customPrompt);
     return;
   }
 
@@ -1053,15 +1072,17 @@ async function performSwitchAndRestartPaseoNotify(botToken, chatId, accountId = 
   }
 }
 
-async function performAutoResumePaseoNotify(botToken, chatId, targetAgentId = null) {
+async function performAutoResumePaseoNotify(botToken, chatId, targetAgentId = null, promptMessage = null) {
   try {
+    const config = readNotificationConfig();
+    const effectivePrompt = promptMessage || config.resumePrompt || "tiếp tục";
     await sendTelegramNotification({
       botToken,
       chatId,
-      text: "⏳ *Đang đổi sang tài khoản tốt nhất và tiếp tục các cuộc trò chuyện trên Paseo...*",
+      text: `⏳ *Đang đổi sang tài khoản tốt nhất và tiếp tục Paseo (Tin nhắn: "${effectivePrompt}")...*`,
     }).catch(() => {});
 
-    await autoResumePaseoTask({ targetAgentId });
+    await autoResumePaseoTask({ targetAgentId, promptMessage: effectivePrompt });
   } catch (err) {
     await sendTelegramNotification({
       botToken,
