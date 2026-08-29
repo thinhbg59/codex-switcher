@@ -1,5 +1,6 @@
 import http from "node:http";
 import fs from "node:fs";
+import os from "node:os";
 import path from "node:path";
 import { spawn, exec } from "node:child_process";
 import { promisify } from "node:util";
@@ -14,11 +15,67 @@ const BACKEND_PORT = 3211;
 const WEB_PORT = parseInt(process.env.CODEX_SWITCHER_WEB_PORT || "3210", 10);
 const WEB_HOST = process.env.CODEX_SWITCHER_WEB_HOST || "0.0.0.0";
 const DASHBOARD_URL = "http://100.66.99.92:3210";
-const BINARY_PATH = "/Applications/Codex Switcher.app/Contents/MacOS/codex-web";
-const NOTIFICATION_CONFIG_PATH = path.join(process.env.HOME || "", ".codex", "notification_config.json");
-const PASEO_CLI_PATH = fs.existsSync(path.join(process.env.HOME || "", ".local", "bin", "paseo"))
-  ? path.join(process.env.HOME || "", ".local", "bin", "paseo")
-  : "paseo";
+
+// Cross-Platform OS Flags & Paths
+const isWindows = process.platform === "win32";
+const isMac = process.platform === "darwin";
+const HOME_DIR = os.homedir();
+const NOTIFICATION_CONFIG_PATH = path.join(HOME_DIR, ".codex", "notification_config.json");
+
+function findBinaryPath() {
+  if (process.env.CODEX_SWITCHER_BINARY) return process.env.CODEX_SWITCHER_BINARY;
+  const candidates = isWindows
+    ? [
+        path.join(__dirname, "codex-web.exe"),
+        path.join(__dirname, "..", "target", "release", "codex-web.exe"),
+        path.join(process.env.PROGRAMFILES || "C:\\Program Files", "Codex Switcher", "codex-web.exe"),
+        path.join(process.env.LOCALAPPDATA || "", "Programs", "Codex Switcher", "codex-web.exe"),
+        "codex-web.exe",
+      ]
+    : isMac
+    ? [
+        "/Applications/Codex Switcher.app/Contents/MacOS/codex-web",
+        path.join(__dirname, "codex-web"),
+        path.join(__dirname, "..", "target", "release", "codex-web"),
+        "codex-web",
+      ]
+    : [
+        "/usr/local/bin/codex-web",
+        path.join(__dirname, "codex-web"),
+        path.join(__dirname, "..", "target", "release", "codex-web"),
+        "codex-web",
+      ];
+  for (const c of candidates) {
+    if (fs.existsSync(c)) return c;
+  }
+  return candidates[0];
+}
+
+function findPaseoCliPath() {
+  if (process.env.PASEO_CLI) return process.env.PASEO_CLI;
+  const candidates = isWindows
+    ? [
+        path.join(process.env.LOCALAPPDATA || "", "Programs", "paseo", "bin", "paseo.cmd"),
+        path.join(process.env.LOCALAPPDATA || "", "Programs", "paseo", "paseo.cmd"),
+        path.join(HOME_DIR, ".local", "bin", "paseo.cmd"),
+        path.join(HOME_DIR, ".local", "bin", "paseo.exe"),
+        path.join(HOME_DIR, "AppData", "Roaming", "npm", "paseo.cmd"),
+        "paseo.cmd",
+        "paseo",
+      ]
+    : [
+        path.join(HOME_DIR, ".local", "bin", "paseo"),
+        "/usr/local/bin/paseo",
+        "paseo",
+      ];
+  for (const c of candidates) {
+    if (fs.existsSync(c)) return c;
+  }
+  return "paseo";
+}
+
+const BINARY_PATH = findBinaryPath();
+const PASEO_CLI_PATH = findPaseoCliPath();
 
 const MIME_TYPES = {
   ".html": "text/html; charset=utf-8",
@@ -202,7 +259,7 @@ async function sendNtfyNotification({ server = "https://ntfy.sh", topic, title, 
 // ==================== PASEO ERROR DETECTION & AUTO RESUME ====================
 
 function detectPaseoQuotaErrors() {
-  const agentsBase = path.join(process.env.HOME || "", ".paseo", "agents");
+  const agentsBase = path.join(HOME_DIR, ".paseo", "agents");
   if (!fs.existsSync(agentsBase)) return [];
   const workspaces = fs.readdirSync(agentsBase);
   const errored = [];
@@ -343,9 +400,7 @@ async function hotReloadAccountForPaseo(targetAccountId = null) {
   await invokeBackendApi("switch_account", { accountId: target.id });
 
   // 2. Terminate old codex worker processes so Paseo spawns a new worker with fresh credentials
-  try {
-    await execAsync('pkill -f "codex app-server" 2>/dev/null || killall -9 codex 2>/dev/null || true');
-  } catch {}
+  await killCodexWorkerProcesses();
 
   // 3. In-place reload Paseo daemon configuration
   try {
@@ -1003,10 +1058,10 @@ async function performAutoResumePaseoNotify(botToken, chatId, targetAgentId = nu
     await sendTelegramNotification({
       botToken,
       chatId,
-      text: "⏳ *Đang đóng Paseo, đổi sang tài khoản tốt nhất, mở lại và gửi lệnh 'tiếp tục'...*",
+      text: "⏳ *Đang đổi sang tài khoản tốt nhất và tiếp tục các cuộc trò chuyện trên Paseo...*",
     }).catch(() => {});
 
-    const res = await autoResumePaseoTask({ targetAgentId });
+    await autoResumePaseoTask({ targetAgentId });
   } catch (err) {
     await sendTelegramNotification({
       botToken,
@@ -1172,12 +1227,27 @@ async function startTelegramLongPolling() {
 // Start Telegram Poller in background
 void startTelegramLongPolling();
 
-// ==================== TAILSCALE HELPERS ====================
+// ==================== CROSS-PLATFORM SYSTEM HELPERS ====================
+
+async function killCodexWorkerProcesses() {
+  try {
+    if (isWindows) {
+      await execAsync('taskkill /F /IM codex.exe /T 2>nul || true');
+    } else {
+      await execAsync('pkill -f "codex app-server" 2>/dev/null || killall -9 codex 2>/dev/null || true');
+    }
+  } catch {}
+}
 
 async function isTailscaleRunning() {
   try {
-    const { stdout } = await execAsync("ps -axo command=");
-    return stdout.includes("Tailscale.app") || stdout.includes("tailscaled");
+    if (isWindows) {
+      const { stdout } = await execAsync('tasklist /FO CSV /NH 2>nul');
+      return stdout.toLowerCase().includes("tailscale");
+    } else {
+      const { stdout } = await execAsync("ps -axo command=");
+      return stdout.includes("Tailscale.app") || stdout.includes("tailscaled");
+    }
   } catch {
     return false;
   }
@@ -1188,7 +1258,11 @@ async function ensureTailscaleRunning() {
     const running = await isTailscaleRunning();
     if (!running) {
       console.log("[Tailscale] Tailscale is not running. Launching Tailscale in background...");
-      await execAsync("open -g -a Tailscale 2>/dev/null || open -g -a '/Applications/Tailscale.app' 2>/dev/null || true");
+      if (isWindows) {
+        await execAsync('start "" "C:\\Program Files\\Tailscale\\tailscale-ipn.exe" 2>nul || start "" "tailscale-ipn.exe" 2>nul || true');
+      } else {
+        await execAsync("open -g -a Tailscale 2>/dev/null || open -g -a '/Applications/Tailscale.app' 2>/dev/null || true");
+      }
       console.log("[Tailscale] Launch command sent.");
     }
   } catch (err) {
@@ -1198,44 +1272,62 @@ async function ensureTailscaleRunning() {
 
 async function openTailscaleApp() {
   try {
-    await execAsync("open -g -a Tailscale 2>/dev/null || open -g -a '/Applications/Tailscale.app' 2>/dev/null || true");
+    if (isWindows) {
+      await execAsync('start "" "C:\\Program Files\\Tailscale\\tailscale-ipn.exe" 2>nul || start "" "tailscale-ipn.exe" 2>nul || true');
+    } else {
+      await execAsync("open -g -a Tailscale 2>/dev/null || open -g -a '/Applications/Tailscale.app' 2>/dev/null || true");
+    }
     return { ok: true };
   } catch (err) {
     throw new Error(`Failed to open Tailscale: ${err.message}`);
   }
 }
 
-// ==================== PASEO & CODEX HELPERS ====================
-
 async function getPaseoProcesses() {
   try {
-    const { stdout } = await execAsync("ps -axo pid=,command=");
-    const pids = [];
-    for (const line of stdout.split("\n")) {
-      const trimmed = line.trim();
-      if (!trimmed) continue;
-      const parts = trimmed.split(/\s+/);
-      const pid = parseInt(parts[0], 10);
-      const cmd = parts.slice(1).join(" ").toLowerCase();
-      if (isNaN(pid) || pid === process.pid || cmd.includes("codex-switcher")) continue;
-      if (
-        cmd.includes("paseo.app") ||
-        cmd.includes("/paseo") ||
-        cmd.startsWith("paseo ") ||
-        cmd === "paseo" ||
-        cmd.includes("paseo helper") ||
-        cmd.includes("paseo daemon") ||
-        cmd.includes("paseo supervisor")
-      ) {
-        if (!pids.includes(pid)) pids.push(pid);
+    if (isWindows) {
+      const { stdout } = await execAsync('tasklist /FO CSV /NH 2>nul');
+      const pids = [];
+      for (const line of stdout.split("\n")) {
+        const match = line.match(/^"([^"]+)","(\d+)"/);
+        if (match) {
+          const name = match[1].toLowerCase();
+          const pid = parseInt(match[2], 10);
+          if (name.includes("paseo") && pid !== process.pid) {
+            pids.push(pid);
+          }
+        }
       }
+      return { count: pids.length, background_count: 0, can_switch: pids.length === 0, pids };
+    } else {
+      const { stdout } = await execAsync("ps -axo pid=,command=");
+      const pids = [];
+      for (const line of stdout.split("\n")) {
+        const trimmed = line.trim();
+        if (!trimmed) continue;
+        const parts = trimmed.split(/\s+/);
+        const pid = parseInt(parts[0], 10);
+        const cmd = parts.slice(1).join(" ").toLowerCase();
+        if (isNaN(pid) || pid === process.pid || cmd.includes("codex-switcher")) continue;
+        if (
+          cmd.includes("paseo.app") ||
+          cmd.includes("/paseo") ||
+          cmd.startsWith("paseo ") ||
+          cmd === "paseo" ||
+          cmd.includes("paseo helper") ||
+          cmd.includes("paseo daemon") ||
+          cmd.includes("paseo supervisor")
+        ) {
+          if (!pids.includes(pid)) pids.push(pid);
+        }
+      }
+      return {
+        count: pids.length,
+        background_count: 0,
+        can_switch: pids.length === 0,
+        pids,
+      };
     }
-    return {
-      count: pids.length,
-      background_count: 0,
-      can_switch: pids.length === 0,
-      pids,
-    };
   } catch {
     return { count: 0, background_count: 0, can_switch: true, pids: [] };
   }
@@ -1245,7 +1337,11 @@ async function killPaseoProcesses() {
   const info = await getPaseoProcesses();
   if (info.pids.length > 0) {
     try {
-      await execAsync(`kill -9 ${info.pids.join(" ")} 2>/dev/null || true`);
+      if (isWindows) {
+        await execAsync('taskkill /F /IM Paseo.exe /T 2>nul || true');
+      } else {
+        await execAsync(`kill -9 ${info.pids.join(" ")} 2>/dev/null || true`);
+      }
     } catch {}
   }
   return {
@@ -1257,7 +1353,11 @@ async function killPaseoProcesses() {
 
 async function closePaseoApp() {
   try {
-    await execAsync("osascript -e 'tell application id \"sh.paseo.desktop\" to quit' 2>/dev/null || osascript -e 'tell application \"Paseo\" to quit' 2>/dev/null || killall -15 Paseo 2>/dev/null || true");
+    if (isWindows) {
+      await execAsync('taskkill /IM Paseo.exe 2>nul || true');
+    } else {
+      await execAsync("osascript -e 'tell application id \"sh.paseo.desktop\" to quit' 2>/dev/null || osascript -e 'tell application \"Paseo\" to quit' 2>/dev/null || killall -15 Paseo 2>/dev/null || true");
+    }
     return { ok: true };
   } catch (err) {
     throw new Error(`Failed to close Paseo: ${err.message}`);
@@ -1266,7 +1366,11 @@ async function closePaseoApp() {
 
 async function openPaseoApp() {
   try {
-    await execAsync("open -b sh.paseo.desktop 2>/dev/null || open -a Paseo");
+    if (isWindows) {
+      await execAsync('start "" "paseo:" 2>nul || start "" "%LOCALAPPDATA%\\Programs\\Paseo\\Paseo.exe" 2>nul || start "" "Paseo.exe" 2>nul || true');
+    } else {
+      await execAsync("open -b sh.paseo.desktop 2>/dev/null || open -a Paseo");
+    }
     return null;
   } catch (err) {
     throw new Error(`Failed to open Paseo: ${err.message}`);
@@ -1275,7 +1379,11 @@ async function openPaseoApp() {
 
 async function openCodexApp() {
   try {
-    await execAsync("open -b com.openai.codex 2>/dev/null || open -a Codex 2>/dev/null || open -a ChatGPT 2>/dev/null");
+    if (isWindows) {
+      await execAsync('start "" "codex:" 2>nul || start "" "%LOCALAPPDATA%\\Programs\\Codex\\Codex.exe" 2>nul || start "" "Codex.exe" 2>nul || true');
+    } else {
+      await execAsync("open -b com.openai.codex 2>/dev/null || open -a Codex 2>/dev/null || open -a ChatGPT 2>/dev/null");
+    }
     return null;
   } catch (err) {
     throw new Error(`Failed to open Codex: ${err.message}`);
