@@ -16,6 +16,9 @@ const WEB_HOST = process.env.CODEX_SWITCHER_WEB_HOST || "0.0.0.0";
 const DASHBOARD_URL = "http://100.66.99.92:3210";
 const BINARY_PATH = "/Applications/Codex Switcher.app/Contents/MacOS/codex-web";
 const NOTIFICATION_CONFIG_PATH = path.join(process.env.HOME || "", ".codex", "notification_config.json");
+const PASEO_CLI_PATH = fs.existsSync(path.join(process.env.HOME || "", ".local", "bin", "paseo"))
+  ? path.join(process.env.HOME || "", ".local", "bin", "paseo")
+  : "paseo";
 
 const MIME_TYPES = {
   ".html": "text/html; charset=utf-8",
@@ -68,6 +71,7 @@ function readNotificationConfig() {
           enabled: Boolean(data.autoSwitch?.enabled),
           threshold: typeof data.autoSwitch?.threshold === "number" ? data.autoSwitch.threshold : 95,
         },
+        autoResumePaseo: data.autoResumePaseo !== undefined ? Boolean(data.autoResumePaseo) : true,
       };
     }
   } catch (err) {
@@ -79,6 +83,7 @@ function readNotificationConfig() {
     threshold: 80,
     cooldownMinutes: 60,
     autoSwitch: { enabled: false, threshold: 95 },
+    autoResumePaseo: true,
   };
 }
 
@@ -194,7 +199,52 @@ async function sendNtfyNotification({ server = "https://ntfy.sh", topic, title, 
   return { ok: true };
 }
 
-// ==================== AUTO-SWITCH & RESTART PASEO ====================
+// ==================== PASEO ERROR DETECTION & AUTO RESUME ====================
+
+function detectPaseoQuotaErrors() {
+  const agentsBase = path.join(process.env.HOME || "", ".paseo", "agents");
+  if (!fs.existsSync(agentsBase)) return [];
+  const workspaces = fs.readdirSync(agentsBase);
+  const errored = [];
+
+  for (const wks of workspaces) {
+    const wksPath = path.join(agentsBase, wks);
+    try {
+      if (!fs.statSync(wksPath).isDirectory()) continue;
+      const files = fs.readdirSync(wksPath);
+      for (const file of files) {
+        if (!file.endsWith(".json")) continue;
+        const filePath = path.join(wksPath, file);
+        try {
+          const stats = fs.statSync(filePath);
+          const data = JSON.parse(fs.readFileSync(filePath, "utf8"));
+          const err = data.lastError || "";
+          if (
+            err.includes("usage limit") ||
+            err.includes("hit your usage limit") ||
+            err.includes("purchase more credits") ||
+            err.includes("rate limit") ||
+            err.includes("Quota exceeded")
+          ) {
+            errored.push({
+              id: data.id,
+              title: data.title || "Cuộc trò chuyện Paseo",
+              updatedAt: data.updatedAt,
+              mtime: stats.mtime.getTime(),
+              lastError: err,
+              cwd: data.cwd,
+            });
+          }
+        } catch {}
+      }
+    } catch {}
+  }
+
+  errored.sort((a, b) => b.mtime - a.mtime);
+  return errored;
+}
+
+let lastHandledPaseoErrors = {};
 
 async function switchAccountAndRestartPaseo(targetAccountId = null) {
   const allAccounts = await invokeBackendApi("list_accounts").catch(() => []);
@@ -254,6 +304,179 @@ async function switchAccountAndRestartPaseo(targetAccountId = null) {
     usage,
   };
 }
+
+async function hotReloadAccountForPaseo(targetAccountId = null) {
+  const allAccounts = await invokeBackendApi("list_accounts").catch(() => []);
+  const activeAccount = await invokeBackendApi("get_active_account_info").catch(() => null);
+
+  let target = null;
+  if (targetAccountId) {
+    target = allAccounts.find((a) => a.id === targetAccountId);
+  } else {
+    // Pick best alternative account
+    const otherAccounts = allAccounts.filter((a) => a.id !== activeAccount?.id);
+    if (otherAccounts.length === 0) {
+      throw new Error("Không có tài khoản khác để chuyển đổi.");
+    }
+    const candidatesWithUsage = [];
+    for (const acc of otherAccounts) {
+      try {
+        const u = await invokeBackendApi("get_usage", { accountId: acc.id });
+        candidatesWithUsage.push({
+          account: acc,
+          usage: u,
+          used: typeof u?.primary_used_percent === "number" ? u.primary_used_percent : 0,
+        });
+      } catch {
+        candidatesWithUsage.push({ account: acc, usage: null, used: 100 });
+      }
+    }
+    candidatesWithUsage.sort((a, b) => a.used - b.used);
+    target = candidatesWithUsage[0].account;
+  }
+
+  if (!target) {
+    throw new Error("Không tìm thấy tài khoản mục tiêu.");
+  }
+
+  // 1. Switch account in Codex Switcher (updates ~/.codex/auth.json)
+  await invokeBackendApi("switch_account", { accountId: target.id });
+
+  // 2. Terminate old codex worker processes so Paseo spawns a new worker with fresh credentials
+  try {
+    await execAsync('pkill -f "codex app-server" 2>/dev/null || killall -9 codex 2>/dev/null || true');
+  } catch {}
+
+  // 3. In-place reload Paseo daemon configuration
+  try {
+    await execAsync(`"${PASEO_CLI_PATH}" daemon reload`);
+    console.log("[PaseoAutoResume] In-place daemon config reloaded successfully.");
+  } catch (err) {
+    console.log("[PaseoAutoResume] Daemon reload warning:", err.message);
+  }
+
+  // 4. Ensure Paseo is running
+  const info = await getPaseoProcesses();
+  if (info.count === 0) {
+    await openPaseoApp().catch(() => {});
+    await new Promise((r) => setTimeout(r, 2000));
+  }
+
+  const usage = await invokeBackendApi("get_usage", { accountId: target.id }).catch(() => null);
+  return {
+    switchedTo: target,
+    usage,
+  };
+}
+
+async function autoResumePaseoTask({ targetAgentId = null, targetAccountId = null, promptMessage = "tiếp tục", restartPaseo = false } = {}) {
+  // 1. Detect target agent
+  let targetAgent = null;
+  const erroredList = detectPaseoQuotaErrors();
+
+  if (targetAgentId) {
+    targetAgent = erroredList.find((a) => a.id === targetAgentId) || { id: targetAgentId, title: "Paseo Agent" };
+  } else if (erroredList.length > 0) {
+    targetAgent = erroredList[0];
+  }
+
+  // 2. Switch account: In-place Hot Reload vs Full Restart
+  let switchRes;
+  if (restartPaseo) {
+    switchRes = await switchAccountAndRestartPaseo(targetAccountId);
+    await new Promise((r) => setTimeout(r, 3500));
+  } else {
+    switchRes = await hotReloadAccountForPaseo(targetAccountId);
+    await new Promise((r) => setTimeout(r, 600));
+  }
+
+  const switchedTo = switchRes.switchedTo;
+  const newUsed = typeof switchRes.usage?.primary_used_percent === "number" ? switchRes.usage.primary_used_percent : 0;
+  const newRemaining = Math.max(0, 100 - newUsed);
+
+  // 4. Send prompt to the agent
+  let messageSent = false;
+  let sendError = null;
+
+  if (targetAgent && targetAgent.id) {
+    try {
+      console.log(`[PaseoAutoResume] Sending prompt "${promptMessage}" to agent ${targetAgent.id}...`);
+      await execAsync(`"${PASEO_CLI_PATH}" send ${targetAgent.id} "${promptMessage.replace(/"/g, '\\"')}" --no-wait`);
+      messageSent = true;
+      console.log(`[PaseoAutoResume] Prompt sent successfully to agent ${targetAgent.id}`);
+    } catch (err) {
+      sendError = err.message;
+      console.error(`[PaseoAutoResume] Failed to send prompt:`, err.message);
+    }
+  }
+
+  // 5. Notify via Telegram & ntfy
+  const config = readNotificationConfig();
+  if (config.telegram?.enabled && config.telegram?.botToken && config.telegram?.chatId) {
+    const tgMsg = `🚀 *ĐÃ TỰ ĐỘNG KHÔI PHỤC & TIẾP TỤC TRÊN PASEO!*\n\n${targetAgent ? `📝 *Cuộc trò chuyện:* \`${targetAgent.title}\`\n` : ""}✅ *Tài khoản mới:* \`${switchedTo.name}\` (Còn *${newRemaining.toFixed(0)}%* quota)\n💬 *Tin nhắn gửi đi:* \`${promptMessage}\`${messageSent ? " (Đã gửi ✓)" : sendError ? ` (Lỗi: ${sendError})` : ""}\n\n👉 _Paseo đã được mở lại đúng cuộc trò chuyện và tiếp tục xử lý công việc!_`;
+
+    await sendTelegramNotification({
+      botToken: config.telegram.botToken,
+      chatId: config.telegram.chatId,
+      text: tgMsg,
+      replyMarkup: {
+        inline_keyboard: [
+          [{ text: "📋 Danh sách tài khoản", callback_data: "cmd_list" }],
+          [{ text: "📱 Mở Dashboard", url: DASHBOARD_URL }],
+        ],
+      },
+    }).catch(() => {});
+  }
+
+  if (config.ntfy?.enabled && config.ntfy?.topic) {
+    await sendNtfyNotification({
+      server: config.ntfy.server,
+      topic: config.ntfy.topic,
+      title: `🚀 Tiếp tục Paseo: ${switchedTo.name}`,
+      message: `Đã đổi sang ${switchedTo.name} (còn ${newRemaining.toFixed(0)}%) và gửi tin nhắn "${promptMessage}" tiếp tục xử lý.`,
+      tags: ["rocket", "white_check_mark"],
+      clickUrl: DASHBOARD_URL,
+    }).catch(() => {});
+  }
+
+  if (targetAgent?.id) {
+    lastHandledPaseoErrors[targetAgent.id] = Date.now();
+  }
+
+  return {
+    ok: true,
+    targetAgent,
+    switchedTo,
+    usage: switchRes.usage,
+    messageSent,
+    sendError,
+  };
+}
+
+// Background monitor for Paseo Quota Errors (runs every 10s)
+setInterval(async () => {
+  try {
+    const config = readNotificationConfig();
+    if (!config.autoResumePaseo && !config.autoSwitch?.enabled) return;
+
+    const errored = detectPaseoQuotaErrors();
+    if (errored.length === 0) return;
+
+    const latest = errored[0];
+    const now = Date.now();
+    // Only handle if error occurred in the last 3 minutes and wasn't handled in the last 3 minutes
+    if (now - latest.mtime < 3 * 60 * 1000) {
+      const lastHandled = lastHandledPaseoErrors[latest.id];
+      if (!lastHandled || now - lastHandled > 3 * 60 * 1000) {
+        console.log(`[PaseoMonitor] Detected new quota error in Paseo agent: ${latest.id} (${latest.title}). Starting auto-resume...`);
+        lastHandledPaseoErrors[latest.id] = now;
+        await autoResumePaseoTask({ targetAgentId: latest.id });
+      }
+    }
+  } catch (err) {
+    console.error("[PaseoMonitor] Check error:", err.message);
+  }
+}, 10 * 1000);
 
 // ==================== AUTO-SWITCH & LOW QUOTA MONITOR ====================
 
@@ -350,19 +573,20 @@ async function checkLowQuotaAndNotify() {
       const otherAccounts = allAccounts.filter((a) => a.id !== activeAccount.id);
       const switchButtons = [];
 
+      switchButtons.push([
+        { text: "🚀 Đổi Acc & Tiếp tục Paseo", callback_data: "cmd_auto_resume_paseo" },
+      ]);
+
       for (let i = 0; i < Math.min(3, otherAccounts.length); i++) {
         const acc = otherAccounts[i];
         const shortName = acc.name.length > 20 ? acc.name.substring(0, 18) + ".." : acc.name;
         switchButtons.push([{ text: `🔄 Đổi & Restart Paseo: ${shortName}`, callback_data: `switch_restart:${acc.id}` }]);
       }
-      switchButtons.push([
-        { text: "🔄 Tự đổi Acc & Restart Paseo", callback_data: "cmd_auto_switch_restart_paseo" },
-        { text: "📱 Mở Dashboard", url: DASHBOARD_URL }
-      ]);
+      switchButtons.push([{ text: "📱 Mở Dashboard", url: DASHBOARD_URL }]);
 
       // Telegram notification
       if (config.telegram.enabled && config.telegram.botToken && config.telegram.chatId) {
-        const tgText = `⚠️ *Cảnh báo: Hạn mức Codex sắp hết!*\n\n👤 *Tài khoản:* \`${activeAccount.name}\`\n📊 *Đã sử dụng:* *${used.toFixed(0)}%* (Còn lại: *${remaining.toFixed(0)}%*)\n${resetTimeText ? `⏳ *Reset lúc:* ${resetTimeText}\n` : ""}\n💡 _Hãy bấm nút bên dưới để tự đổi tài khoản và khởi động lại Paseo:_`;
+        const tgText = `⚠️ *Cảnh báo: Hạn mức Codex sắp hết!*\n\n👤 *Tài khoản:* \`${activeAccount.name}\`\n📊 *Đã sử dụng:* *${used.toFixed(0)}%* (Còn lại: *${remaining.toFixed(0)}%*)\n${resetTimeText ? `⏳ *Reset lúc:* ${resetTimeText}\n` : ""}\n💡 _Bấm nút bên dưới để đổi tài khoản & tiếp tục chat trên Paseo:_`;
         try {
           await sendTelegramNotification({
             botToken: config.telegram.botToken,
@@ -424,7 +648,7 @@ async function handleTelegramMessage(msg, botToken, config) {
   // 1. /start, /help
   if (lower === "/start" || lower === "/help") {
     const active = await invokeBackendApi("get_active_account_info").catch(() => null);
-    const welcome = `👋 *Xin chào! Tôi là Bot điều khiển Codex Switcher.*\n\n⚡ *Tài khoản active:* \`${active?.name || "Chưa chọn"}\`\n\n📱 *Các lệnh điều khiển:*\n• /list - Danh sách tài khoản & nút chuyển nhanh\n• /restart_paseo - Tự đổi tài khoản & khởi động lại Paseo\n• /active - Xem chi tiết hạn mức tài khoản hiện tại\n• /switch <số hoặc tên> - Chuyển sang tài khoản\n• /warmup - Warm up tất cả tài khoản\n• /paseo - Trạng thái & Mở/Đóng app Paseo\n• /codex - Trạng thái & Mở/Đóng app Codex\n\n👉 _Hoặc bấm các nút bên dưới:_`;
+    const welcome = `👋 *Xin chào! Tôi là Bot điều khiển Codex Switcher.*\n\n⚡ *Tài khoản active:* \`${active?.name || "Chưa chọn"}\`\n\n📱 *Các lệnh điều khiển:*\n• /resume\\_paseo (hoặc /tieptuc) - Tự đổi tài khoản & gửi 'tiếp tục' trên Paseo\n• /restart\\_paseo - Đổi tài khoản & khởi động lại Paseo\n• /list - Danh sách tài khoản & nút chuyển nhanh\n• /active - Xem chi tiết hạn mức tài khoản hiện tại\n• /switch <số hoặc tên> - Chuyển sang tài khoản\n• /warmup - Warm up tất cả tài khoản\n• /paseo - Trạng thái & Mở/Đóng app Paseo\n• /codex - Trạng thái & Mở/Đóng app Codex\n\n👉 _Hoặc bấm các nút bên dưới:_`;
 
     await sendTelegramNotification({
       botToken,
@@ -433,7 +657,10 @@ async function handleTelegramMessage(msg, botToken, config) {
       replyMarkup: {
         inline_keyboard: [
           [
-            { text: "🔄 Tự đổi Acc & Restart Paseo", callback_data: "cmd_auto_switch_restart_paseo" },
+            { text: "🚀 Đổi Acc & Tiếp tục Paseo", callback_data: "cmd_auto_resume_paseo" },
+          ],
+          [
+            { text: "🔄 Đổi Acc & Restart Paseo", callback_data: "cmd_auto_switch_restart_paseo" },
           ],
           [
             { text: "📋 Danh sách tài khoản", callback_data: "cmd_list" },
@@ -450,7 +677,13 @@ async function handleTelegramMessage(msg, botToken, config) {
     return;
   }
 
-  // 2. /restart_paseo, /switch_restart
+  // 2. /resume_paseo, /continue_paseo, /tieptuc
+  if (lower === "/resume_paseo" || lower === "/continue_paseo" || lower === "/tieptuc" || lower === "tieptuc") {
+    await performAutoResumePaseoNotify(botToken, chatId, null);
+    return;
+  }
+
+  // 3. /restart_paseo, /switch_restart
   if (lower === "/restart_paseo" || lower === "/switch_restart" || lower === "switch_restart" || lower === "restart_paseo") {
     await performSwitchAndRestartPaseoNotify(botToken, chatId, null);
     return;
@@ -481,19 +714,19 @@ async function handleTelegramMessage(msg, botToken, config) {
     return;
   }
 
-  // 3. /list, /accounts
+  // 4. /list, /accounts
   if (lower === "/list" || lower === "/accounts") {
     await sendAccountsListMessage(botToken, chatId);
     return;
   }
 
-  // 4. /active, /status
+  // 5. /active, /status
   if (lower === "/active" || lower === "/status") {
     await sendActiveAccountStatusMessage(botToken, chatId);
     return;
   }
 
-  // 5. /warmup
+  // 6. /warmup
   if (lower === "/warmup") {
     await invokeBackendApi("warmup_all_accounts").catch(() => {});
     await sendTelegramNotification({
@@ -507,7 +740,7 @@ async function handleTelegramMessage(msg, botToken, config) {
     return;
   }
 
-  // 6. /paseo
+  // 7. /paseo
   if (lower === "/paseo") {
     const paseoInfo = await getPaseoProcesses();
     const isRunning = paseoInfo.count > 0;
@@ -516,7 +749,8 @@ async function handleTelegramMessage(msg, botToken, config) {
       : `⚪ *Paseo đang tắt* (0 tiến trình)`;
 
     const buttons = [
-      [{ text: "🔄 Tự đổi Acc & Restart Paseo", callback_data: "cmd_auto_switch_restart_paseo" }],
+      [{ text: "🚀 Đổi Acc & Tiếp tục Paseo", callback_data: "cmd_auto_resume_paseo" }],
+      [{ text: "🔄 Đổi Acc & Restart Paseo", callback_data: "cmd_auto_switch_restart_paseo" }],
       isRunning
         ? [
             { text: "❌ Đóng Paseo", callback_data: "cmd_close_paseo" },
@@ -534,7 +768,7 @@ async function handleTelegramMessage(msg, botToken, config) {
     return;
   }
 
-  // 7. /codex
+  // 8. /codex
   if (lower === "/codex") {
     const codexInfo = await invokeBackendApi("check_codex_processes").catch(() => ({ count: 0 }));
     const isRunning = codexInfo.count > 0;
@@ -555,7 +789,7 @@ async function handleTelegramMessage(msg, botToken, config) {
     return;
   }
 
-  // 8. /switch <query>
+  // 9. /switch <query>
   if (lower.startsWith("/switch ") || lower.startsWith("switch ")) {
     const query = text.replace(/^\/?switch\s+/i, "").trim();
     if (!query) {
@@ -608,6 +842,9 @@ async function sendAccountsListMessage(botToken, chatId) {
   let textLines = ["📋 *DANH SÁCH TÀI KHOẢN CODEX*\n"];
   const inlineButtons = [];
 
+  inlineButtons.push([
+    { text: "🚀 Đổi Acc & Tiếp tục Paseo", callback_data: "cmd_auto_resume_paseo" },
+  ]);
   inlineButtons.push([
     { text: "🔄 Tự đổi Acc tốt nhất & Restart Paseo", callback_data: "cmd_auto_switch_restart_paseo" },
   ]);
@@ -682,6 +919,7 @@ async function sendActiveAccountStatusMessage(botToken, chatId) {
     text,
     replyMarkup: {
       inline_keyboard: [
+        [{ text: "🚀 Đổi Acc & Tiếp tục Paseo", callback_data: "cmd_auto_resume_paseo" }],
         [{ text: "🔄 Tự đổi Acc & Restart Paseo", callback_data: "cmd_auto_switch_restart_paseo" }],
         [{ text: "📋 Danh sách tài khoản", callback_data: "cmd_list" }],
         [{ text: "📱 Mở Web Dashboard", url: DASHBOARD_URL }],
@@ -752,10 +990,34 @@ async function performSwitchAndRestartPaseoNotify(botToken, chatId, accountId = 
   }
 }
 
+async function performAutoResumePaseoNotify(botToken, chatId, targetAgentId = null) {
+  try {
+    await sendTelegramNotification({
+      botToken,
+      chatId,
+      text: "⏳ *Đang đóng Paseo, đổi sang tài khoản tốt nhất, mở lại và gửi lệnh 'tiếp tục'...*",
+    }).catch(() => {});
+
+    const res = await autoResumePaseoTask({ targetAgentId });
+  } catch (err) {
+    await sendTelegramNotification({
+      botToken,
+      chatId,
+      text: `❌ Tự động tiếp tục Paseo thất bại: ${err.message}`,
+    }).catch(() => {});
+  }
+}
+
 async function handleTelegramCallbackQuery(query, botToken, config) {
   const chatId = query.message?.chat?.id;
   const data = query.data;
   if (!chatId || !data) return;
+
+  if (data === "cmd_auto_resume_paseo") {
+    await answerTelegramCallbackQuery(botToken, query.id, "Đang khôi phục Paseo...");
+    await performAutoResumePaseoNotify(botToken, chatId, null);
+    return;
+  }
 
   if (data.startsWith("switch_restart:")) {
     const accountId = data.split(":")[1];
@@ -1067,6 +1329,36 @@ const server = http.createServer(async (req, res) => {
 
   // ==================== NOTIFICATION & SWITCH-PASEO ROUTES ====================
 
+  if (url.pathname === "/api/invoke/auto_resume_paseo") {
+    try {
+      const payload = await parseRequestBody(req);
+      const result = await autoResumePaseoTask({
+        targetAgentId: payload.agentId || null,
+        targetAccountId: payload.accountId || null,
+        promptMessage: payload.message || "tiếp tục",
+        restartPaseo: Boolean(payload.restartPaseo),
+      });
+      res.writeHead(200, { "Content-Type": "application/json" });
+      res.end(JSON.stringify({ ok: true, result }));
+    } catch (err) {
+      res.writeHead(500, { "Content-Type": "application/json" });
+      res.end(JSON.stringify({ error: err.message }));
+    }
+    return;
+  }
+
+  if (url.pathname === "/api/invoke/get_paseo_errored_agents") {
+    try {
+      const result = detectPaseoQuotaErrors();
+      res.writeHead(200, { "Content-Type": "application/json" });
+      res.end(JSON.stringify(result));
+    } catch (err) {
+      res.writeHead(500, { "Content-Type": "application/json" });
+      res.end(JSON.stringify({ error: err.message }));
+    }
+    return;
+  }
+
   if (url.pathname === "/api/invoke/switch_and_restart_paseo") {
     try {
       const payload = await parseRequestBody(req);
@@ -1150,6 +1442,7 @@ const server = http.createServer(async (req, res) => {
         text: tgText,
         replyMarkup: {
           inline_keyboard: [
+            [{ text: "🚀 Đổi Acc & Tiếp tục Paseo", callback_data: "cmd_auto_resume_paseo" }],
             [{ text: "🔄 Tự đổi Acc & Restart Paseo", callback_data: "cmd_auto_switch_restart_paseo" }],
             [
               { text: "📋 Danh sách tài khoản", callback_data: "cmd_list" },

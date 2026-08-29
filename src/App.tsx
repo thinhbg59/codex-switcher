@@ -257,12 +257,14 @@ function App() {
     threshold: 80,
     cooldownMinutes: 60,
     autoSwitch: { enabled: false, threshold: 95 },
+    autoResumePaseo: true,
   });
   const [isTestingTelegram, setIsTestingTelegram] = useState(false);
   const [isDetectingChatId, setIsDetectingChatId] = useState(false);
   const [isTestingNtfy, setIsTestingNtfy] = useState(false);
   const [isSavingNotification, setIsSavingNotification] = useState(false);
   const [isSwitchingAndRestartingPaseo, setIsSwitchingAndRestartingPaseo] = useState(false);
+  const [isAutoResumingPaseo, setIsAutoResumingPaseo] = useState(false);
   const actionsMenuRef = useRef<HTMLDivElement | null>(null);
   const navMenuRef = useRef<HTMLDivElement | null>(null);
   const [themeMode, setThemeMode] = useState<ThemeMode>(readStoredTheme);
@@ -1289,6 +1291,38 @@ function App() {
     }
   };
 
+  const handleAutoResumePaseo = async (agentId?: string, restartPaseo = false) => {
+    try {
+      setIsAutoResumingPaseo(true);
+      showWarmupToast("Đang phát hiện lỗi, đổi tài khoản và tiếp tục chat Paseo...");
+      const res = await invokeBackend<{
+        ok: boolean;
+        result?: {
+          targetAgent?: { title?: string; id: string };
+          switchedTo: { name: string };
+          messageSent: boolean;
+        };
+      }>("auto_resume_paseo", { agentId, restartPaseo });
+
+      if (res?.result) {
+        showWarmupToast(
+          `Đã chuyển sang ${res.result.switchedTo.name} & gửi "tiếp tục" trên Paseo!`
+        );
+      } else {
+        showWarmupToast("Đã khôi phục và tiếp tục Paseo thành công!");
+      }
+      await loadAccounts();
+      setTimeout(() => {
+        void checkPaseoProcesses();
+      }, 2000);
+    } catch (err) {
+      console.error("Failed to auto resume Paseo:", err);
+      showWarmupToast(`Khôi phục Paseo thất bại: ${formatWarmupError(err)}`, true);
+    } finally {
+      setIsAutoResumingPaseo(false);
+    }
+  };
+
   const handleSaveNotificationConfig = async () => {
     try {
       setIsSavingNotification(true);
@@ -1614,12 +1648,20 @@ function App() {
                         </span>
                       </span>
                       <button
+                        onClick={() => void handleAutoResumePaseo()}
+                        disabled={isAutoResumingPaseo || isSwitchingAndRestartingPaseo || accounts.length <= 1}
+                        className="inline-flex items-center gap-1 rounded-md border border-purple-300 bg-purple-50 px-2 py-0.5 text-xs font-semibold text-purple-800 transition-colors hover:bg-purple-100 disabled:opacity-50 dark:border-purple-800 dark:bg-purple-950/40 dark:text-purple-300 dark:hover:bg-purple-900/60 shadow-sm"
+                        title="Đổi sang tài khoản tốt nhất (không cần tắt app), reload cấu hình và gửi 'tiếp tục' vào cuộc trò chuyện vừa hết quota"
+                      >
+                        <span>{isAutoResumingPaseo ? "⏳ Đang gửi tiếp..." : "🚀 Đổi Acc & Tiếp tục Paseo"}</span>
+                      </button>
+                      <button
                         onClick={() => void handleSwitchAndRestartPaseo()}
-                        disabled={isSwitchingAndRestartingPaseo || accounts.length <= 1}
+                        disabled={isSwitchingAndRestartingPaseo || isAutoResumingPaseo || accounts.length <= 1}
                         className="inline-flex items-center gap-1 rounded-md border border-emerald-300 bg-emerald-50 px-2 py-0.5 text-xs font-semibold text-emerald-800 transition-colors hover:bg-emerald-100 disabled:opacity-50 dark:border-emerald-800 dark:bg-emerald-950/40 dark:text-emerald-300 dark:hover:bg-emerald-900/60 shadow-sm"
                         title="Tự động đóng Paseo, chuyển sang tài khoản tốt nhất và mở lại Paseo"
                       >
-                        <span>{isSwitchingAndRestartingPaseo ? "⏳ Đang đổi..." : "🔄 Đổi Acc & Mở lại Paseo"}</span>
+                        <span>{isSwitchingAndRestartingPaseo ? "⏳ Đang đổi..." : "🔄 Restart Paseo"}</span>
                       </button>
                       {hasRunningPaseoProcesses && (
                         <>
@@ -2577,6 +2619,40 @@ function App() {
                     </select>
                   </div>
                 )}
+              </div>
+
+              {/* Paseo Auto-Resume on Quota */}
+              <div className="p-3.5 bg-purple-50 dark:bg-purple-950/20 border border-purple-200 dark:border-purple-800 rounded-xl space-y-2.5">
+                <div className="flex items-center justify-between">
+                  <div className="flex items-center gap-2">
+                    <span className="text-base">🚀</span>
+                    <div>
+                      <h4 className="text-sm font-semibold text-purple-900 dark:text-purple-200">
+                        Tự động Tiếp tục Chat trên Paseo
+                      </h4>
+                      <p className="text-xs text-purple-700 dark:text-purple-400">
+                        Phát hiện lỗi hết Quota ➔ Đổi acc ➔ Gửi "tiếp tục" (không cần tắt app)
+                      </p>
+                    </div>
+                  </div>
+                  <label className="relative inline-flex items-center cursor-pointer">
+                    <input
+                      type="checkbox"
+                      checked={notificationConfig.autoResumePaseo ?? true}
+                      onChange={(e) =>
+                        setNotificationConfig((prev) => ({
+                          ...prev,
+                          autoResumePaseo: e.target.checked,
+                        }))
+                      }
+                      className="sr-only peer"
+                    />
+                    <div className="w-9 h-5 bg-gray-300 peer-focus:outline-none rounded-full peer dark:bg-gray-700 peer-checked:after:translate-x-full peer-checked:after:border-white after:content-[''] after:absolute after:top-[2px] after:left-[2px] after:bg-white after:border-gray-300 after:border after:rounded-full after:h-4 after:w-4 after:transition-all peer-checked:bg-purple-600"></div>
+                  </label>
+                </div>
+                <p className="text-xs text-gray-600 dark:text-gray-300">
+                  Khi Paseo báo lỗi "You’ve hit your usage limit", hệ thống sẽ tự động chuyển sang tài khoản mới, tải lại cấu hình daemon trong chớp mắt và tự động gửi tin nhắn <strong>tiếp tục</strong> vào đúng cuộc trò chuyện đang làm dở.
+                </p>
               </div>
             </div>
 
