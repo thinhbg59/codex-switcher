@@ -262,6 +262,7 @@ function App() {
   const [isDetectingChatId, setIsDetectingChatId] = useState(false);
   const [isTestingNtfy, setIsTestingNtfy] = useState(false);
   const [isSavingNotification, setIsSavingNotification] = useState(false);
+  const [isSwitchingAndRestartingPaseo, setIsSwitchingAndRestartingPaseo] = useState(false);
   const actionsMenuRef = useRef<HTMLDivElement | null>(null);
   const navMenuRef = useRef<HTMLDivElement | null>(null);
   const [themeMode, setThemeMode] = useState<ThemeMode>(readStoredTheme);
@@ -1263,6 +1264,31 @@ function App() {
     }
   };
 
+  const handleSwitchAndRestartPaseo = async (targetAccountId?: string) => {
+    try {
+      setIsSwitchingAndRestartingPaseo(true);
+      showWarmupToast("Đang đóng Paseo, đổi tài khoản và mở lại Paseo...");
+      const res = await invokeBackend<{ ok: boolean; result?: { switchedTo: { id: string; name: string }; usage: unknown } }>(
+        "switch_and_restart_paseo",
+        { accountId: targetAccountId }
+      );
+      if (res?.result?.switchedTo) {
+        showWarmupToast(`Đã chuyển sang ${res.result.switchedTo.name} & mở lại Paseo!`);
+      } else {
+        showWarmupToast("Đã chuyển tài khoản & mở lại Paseo thành công!");
+      }
+      await loadAccounts();
+      setTimeout(() => {
+        void checkPaseoProcesses();
+      }, 1500);
+    } catch (err) {
+      console.error("Failed to switch and restart Paseo:", err);
+      showWarmupToast(`Lỗi chuyển & restart Paseo: ${formatWarmupError(err)}`, true);
+    } finally {
+      setIsSwitchingAndRestartingPaseo(false);
+    }
+  };
+
   const handleSaveNotificationConfig = async () => {
     try {
       setIsSavingNotification(true);
@@ -1587,11 +1613,19 @@ function App() {
                             : "0 Paseo running"}
                         </span>
                       </span>
+                      <button
+                        onClick={() => void handleSwitchAndRestartPaseo()}
+                        disabled={isSwitchingAndRestartingPaseo || accounts.length <= 1}
+                        className="inline-flex items-center gap-1 rounded-md border border-emerald-300 bg-emerald-50 px-2 py-0.5 text-xs font-semibold text-emerald-800 transition-colors hover:bg-emerald-100 disabled:opacity-50 dark:border-emerald-800 dark:bg-emerald-950/40 dark:text-emerald-300 dark:hover:bg-emerald-900/60 shadow-sm"
+                        title="Tự động đóng Paseo, chuyển sang tài khoản tốt nhất và mở lại Paseo"
+                      >
+                        <span>{isSwitchingAndRestartingPaseo ? "⏳ Đang đổi..." : "🔄 Đổi Acc & Mở lại Paseo"}</span>
+                      </button>
                       {hasRunningPaseoProcesses && (
                         <>
                           <button
                             onClick={handleClosePaseoApp}
-                            disabled={isClosingPaseo || isForceClosingPaseo}
+                            disabled={isClosingPaseo || isForceClosingPaseo || isSwitchingAndRestartingPaseo}
                             className="inline-flex items-center rounded-md border border-gray-200 bg-gray-50 px-2 py-0.5 text-xs font-medium text-gray-700 transition-colors hover:bg-gray-100 disabled:opacity-50 dark:border-gray-700 dark:bg-gray-800 dark:text-gray-200 dark:hover:bg-gray-700"
                             title="Close Paseo app gracefully"
                           >
@@ -1599,7 +1633,7 @@ function App() {
                           </button>
                           <button
                             onClick={() => setPaseoForceCloseConfirmOpen(true)}
-                            disabled={isClosingPaseo || isForceClosingPaseo}
+                            disabled={isClosingPaseo || isForceClosingPaseo || isSwitchingAndRestartingPaseo}
                             className="inline-flex items-center rounded-md border border-red-200 bg-red-50 px-2 py-0.5 text-xs font-medium text-red-700 transition-colors hover:bg-red-100 disabled:opacity-50 dark:border-red-800 dark:bg-red-900/20 dark:text-red-300 dark:hover:bg-red-900/30"
                             title="Force close running Paseo processes"
                           >
@@ -1610,7 +1644,7 @@ function App() {
                       {!hasRunningPaseoProcesses && (
                         <button
                           onClick={handleOpenPaseoApp}
-                          disabled={isOpeningPaseo}
+                          disabled={isOpeningPaseo || isSwitchingAndRestartingPaseo}
                           className="inline-flex items-center rounded-md border border-green-200 bg-green-50 px-2 py-0.5 text-xs font-medium text-green-700 transition-colors hover:bg-green-100 disabled:opacity-50 dark:border-green-800 dark:bg-green-900/20 dark:text-green-300 dark:hover:bg-green-900/30"
                           title="Open Paseo app"
                         >
@@ -2127,6 +2161,7 @@ function App() {
                         autoWarmupRunningIds.has(account.id)
                       )}
                       onToggleAutoWarmup={() => toggleAutoWarmupAccount(account.id)}
+                      onSwitchAndRestartPaseo={() => void handleSwitchAndRestartPaseo(account.id)}
                     />
                   ))}
                 </div>

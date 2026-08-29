@@ -24,6 +24,7 @@ interface AccountCardProps {
   autoWarmupManagedByAll?: boolean;
   autoWarmupLabel?: string;
   onToggleAutoWarmup?: () => void;
+  onSwitchAndRestartPaseo?: () => void;
 }
 
 function formatLastRefresh(date: Date | null): string {
@@ -110,6 +111,7 @@ export function AccountCard({
   autoWarmupManagedByAll = false,
   autoWarmupLabel,
   onToggleAutoWarmup,
+  onSwitchAndRestartPaseo,
 }: AccountCardProps) {
   const [isRefreshing, setIsRefreshing] = useState(false);
   const [lastRefresh, setLastRefresh] = useState<Date | null>(
@@ -374,18 +376,30 @@ export function AccountCard({
             ✓ Active
           </button>
         ) : (
-          <button
-            onClick={onSwitch}
-            disabled={switching || switchDisabled}
-            className={`flex-1 px-4 py-2 text-sm font-medium rounded-lg transition-colors disabled:opacity-50 ${
-              switchDisabled
-                ? "bg-gray-200 dark:bg-gray-800 text-gray-400 dark:text-gray-500 cursor-not-allowed"
-                : "bg-gray-900 hover:bg-gray-800 dark:bg-gray-100 dark:hover:bg-gray-200 text-white dark:text-gray-900"
-            }`}
-            title={switchDisabled ? "Close all Codex processes first" : undefined}
-          >
-            {switching ? "Switching..." : switchDisabled ? "Codex Running" : "Switch"}
-          </button>
+          <div className="flex-1 flex gap-1.5">
+            <button
+              onClick={onSwitch}
+              disabled={switching || switchDisabled}
+              className={`flex-1 px-3 py-2 text-sm font-medium rounded-lg transition-colors disabled:opacity-50 ${
+                switchDisabled
+                  ? "bg-gray-200 dark:bg-gray-800 text-gray-400 dark:text-gray-500 cursor-not-allowed"
+                  : "bg-gray-900 hover:bg-gray-800 dark:bg-gray-100 dark:hover:bg-gray-200 text-white dark:text-gray-900"
+              }`}
+              title={switchDisabled ? "Close all Codex processes first" : undefined}
+            >
+              {switching ? "Switching..." : switchDisabled ? "Codex Running" : "Switch"}
+            </button>
+            {onSwitchAndRestartPaseo && (
+              <button
+                onClick={onSwitchAndRestartPaseo}
+                disabled={switching}
+                className="px-2.5 py-2 text-xs font-semibold rounded-lg bg-emerald-50 hover:bg-emerald-100 dark:bg-emerald-950/40 dark:hover:bg-emerald-900/60 text-emerald-800 dark:text-emerald-300 border border-emerald-200 dark:border-emerald-800 transition-colors disabled:opacity-50 whitespace-nowrap shadow-sm"
+                title="Đóng Paseo, chuyển sang tài khoản này và mở lại Paseo"
+              >
+                🔄 + Paseo
+              </button>
+            )}
+          </div>
         )}
         <button
           onClick={() => {
