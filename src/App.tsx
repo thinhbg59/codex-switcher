@@ -202,6 +202,7 @@ function App() {
   const [isRefreshing, setIsRefreshing] = useState(false);
   const [isOpeningCodex, setIsOpeningCodex] = useState(false);
   const [isOpeningPaseo, setIsOpeningPaseo] = useState(false);
+  const [isClosingPaseo, setIsClosingPaseo] = useState(false);
   const [isForceClosingPaseo, setIsForceClosingPaseo] = useState(false);
   const [paseoForceCloseConfirmOpen, setPaseoForceCloseConfirmOpen] = useState(false);
   const [isExportingSlim, setIsExportingSlim] = useState(false);
@@ -1211,6 +1212,22 @@ function App() {
     }
   };
 
+  const handleClosePaseoApp = async () => {
+    try {
+      setIsClosingPaseo(true);
+      await invokeBackend("close_paseo_app");
+      showWarmupToast("Sent close signal to Paseo.");
+      setTimeout(() => {
+        void checkPaseoProcesses();
+      }, 1500);
+    } catch (err) {
+      console.error("Failed to close Paseo app:", err);
+      showWarmupToast(`Close Paseo failed: ${formatWarmupError(err)}`, true);
+    } finally {
+      setIsClosingPaseo(false);
+    }
+  };
+
   const handleForceClosePaseo = async () => {
     try {
       setIsForceClosingPaseo(true);
@@ -1474,14 +1491,24 @@ function App() {
                         </span>
                       </span>
                       {hasRunningPaseoProcesses && (
-                        <button
-                          onClick={() => setPaseoForceCloseConfirmOpen(true)}
-                          disabled={isForceClosingPaseo}
-                          className="inline-flex items-center rounded-md border border-red-200 bg-red-50 px-2 py-0.5 text-xs font-medium text-red-700 transition-colors hover:bg-red-100 disabled:opacity-50 dark:border-red-800 dark:bg-red-900/20 dark:text-red-300 dark:hover:bg-red-900/30"
-                          title="Force close running Paseo processes"
-                        >
-                          {isForceClosingPaseo ? "Closing..." : "Force close"}
-                        </button>
+                        <>
+                          <button
+                            onClick={handleClosePaseoApp}
+                            disabled={isClosingPaseo || isForceClosingPaseo}
+                            className="inline-flex items-center rounded-md border border-gray-200 bg-gray-50 px-2 py-0.5 text-xs font-medium text-gray-700 transition-colors hover:bg-gray-100 disabled:opacity-50 dark:border-gray-700 dark:bg-gray-800 dark:text-gray-200 dark:hover:bg-gray-700"
+                            title="Close Paseo app gracefully"
+                          >
+                            {isClosingPaseo ? "Closing..." : "Close"}
+                          </button>
+                          <button
+                            onClick={() => setPaseoForceCloseConfirmOpen(true)}
+                            disabled={isClosingPaseo || isForceClosingPaseo}
+                            className="inline-flex items-center rounded-md border border-red-200 bg-red-50 px-2 py-0.5 text-xs font-medium text-red-700 transition-colors hover:bg-red-100 disabled:opacity-50 dark:border-red-800 dark:bg-red-900/20 dark:text-red-300 dark:hover:bg-red-900/30"
+                            title="Force close running Paseo processes"
+                          >
+                            {isForceClosingPaseo ? "Force closing..." : "Force close"}
+                          </button>
+                        </>
                       )}
                       {!hasRunningPaseoProcesses && (
                         <button

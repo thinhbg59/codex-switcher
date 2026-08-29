@@ -107,6 +107,15 @@ async function killPaseoProcesses() {
   };
 }
 
+async function closePaseoApp() {
+  try {
+    await execAsync("osascript -e 'tell application id \"sh.paseo.desktop\" to quit' 2>/dev/null || osascript -e 'tell application \"Paseo\" to quit' 2>/dev/null || killall -15 Paseo 2>/dev/null || true");
+    return { ok: true };
+  } catch (err) {
+    throw new Error(`Failed to close Paseo: ${err.message}`);
+  }
+}
+
 async function openPaseoApp() {
   try {
     await execAsync("open -b sh.paseo.desktop 2>/dev/null || open -a Paseo");
@@ -198,6 +207,18 @@ const server = http.createServer(async (req, res) => {
   if (url.pathname === "/api/invoke/open_paseo_app") {
     try {
       const result = await openPaseoApp();
+      res.writeHead(200, { "Content-Type": "application/json" });
+      res.end(JSON.stringify(result));
+    } catch (err) {
+      res.writeHead(500, { "Content-Type": "application/json" });
+      res.end(JSON.stringify({ error: err.message }));
+    }
+    return;
+  }
+
+  if (url.pathname === "/api/invoke/close_paseo_app") {
+    try {
+      const result = await closePaseoApp();
       res.writeHead(200, { "Content-Type": "application/json" });
       res.end(JSON.stringify(result));
     } catch (err) {

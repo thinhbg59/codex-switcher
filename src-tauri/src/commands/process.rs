@@ -1435,6 +1435,54 @@ fn kill_paseo_processes_blocking() -> Result<KillCodexProcessesResult, String> {
     })
 }
 
+/// Close the Paseo desktop app gracefully.
+#[tauri::command]
+pub async fn close_paseo_app() -> Result<(), String> {
+    tokio::task::spawn_blocking(close_paseo_app_blocking)
+        .await
+        .map_err(|e| e.to_string())?
+}
+
+fn close_paseo_app_blocking() -> Result<(), String> {
+    #[cfg(target_os = "macos")]
+    {
+        if command_succeeds(
+            Command::new("osascript")
+                .args(["-e", r#"tell application id "sh.paseo.desktop" to quit"#]),
+        ) {
+            return Ok(());
+        }
+
+        if command_succeeds(
+            Command::new("osascript")
+                .args(["-e", r#"tell application "Paseo" to quit"#]),
+        ) {
+            return Ok(());
+        }
+
+        if command_succeeds(Command::new("killall").args(["-15", "Paseo"])) {
+            return Ok(());
+        }
+
+        return Err("Could not send close signal to Paseo app".to_string());
+    }
+
+    #[cfg(windows)]
+    {
+        if command_succeeds(
+            Command::new("taskkill")
+                .creation_flags(CREATE_NO_WINDOW)
+                .args(["/IM", "Paseo.exe"]),
+        ) {
+            return Ok(());
+        }
+        return Err("Could not send close signal to Paseo app".to_string());
+    }
+
+    #[allow(unreachable_code)]
+    Err("Closing Paseo app is only supported on macOS and Windows".to_string())
+}
+
 /// Open the Paseo desktop app if it is installed.
 #[tauri::command]
 pub async fn open_paseo_app() -> Result<(), String> {
