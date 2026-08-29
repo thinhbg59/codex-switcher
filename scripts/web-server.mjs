@@ -100,22 +100,30 @@ async function sendTelegramNotification({ botToken, chatId, text, parseMode = "M
   return data;
 }
 
-async function sendNtfyNotification({ server = "https://ntfy.sh", topic, title, message, priority = "high", tags = ["warning", "bar_chart"], clickUrl, actions }) {
+async function sendNtfyNotification({ server = "https://ntfy.sh", topic, title, message, priority = 4, tags = ["warning", "bar_chart"], clickUrl, actions }) {
   if (!topic) throw new Error("Vui lòng cung cấp ntfy Topic");
   const base = server.replace(/\/+$/, "");
-  const targetUrl = `${base}/${encodeURIComponent(topic)}`;
-  const headers = {
-    "Title": title || "Codex Switcher Alert",
-    "Priority": priority,
-    "Tags": Array.isArray(tags) ? tags.join(",") : tags,
+  const targetUrl = `${base}/`;
+
+  const payload = {
+    topic,
+    title: title || "Codex Switcher Alert",
+    message: message || "",
+    priority: typeof priority === "number" ? priority : (priority === "high" ? 4 : 3),
+    tags: Array.isArray(tags) ? tags : [tags],
   };
-  if (clickUrl) headers["Click"] = clickUrl;
-  if (actions) headers["Actions"] = actions;
+
+  if (clickUrl) {
+    payload.click = clickUrl;
+  }
+  if (actions) {
+    payload.actions = actions;
+  }
 
   const res = await fetch(targetUrl, {
     method: "POST",
-    headers,
-    body: message,
+    headers: { "Content-Type": "application/json" },
+    body: JSON.stringify(payload),
   });
   if (!res.ok) {
     const text = await res.text();
@@ -212,7 +220,9 @@ async function checkLowQuotaAndNotify() {
             title: ntfyTitle,
             message: ntfyMsg,
             clickUrl: dashboardUrl,
-            actions: `view, Mở Dashboard, ${dashboardUrl}`
+            actions: [
+              { action: "view", label: "📱 Mở Dashboard", url: dashboardUrl }
+            ]
           });
           console.log(`[Notification] Sent ntfy low quota alert for ${activeAccount.name} (${used}%)`);
         } catch (ntfyErr) {
@@ -497,7 +507,9 @@ const server = http.createServer(async (req, res) => {
         message: "Cấu hình ntfy.sh của bạn đang hoạt động bình thường!",
         tags: ["white_check_mark", "robot"],
         clickUrl: dashboardUrl,
-        actions: `view, Mở Dashboard, ${dashboardUrl}`
+        actions: [
+          { action: "view", label: "📱 Mở Dashboard", url: dashboardUrl }
+        ]
       });
       res.writeHead(200, { "Content-Type": "application/json" });
       res.end(JSON.stringify(result));
