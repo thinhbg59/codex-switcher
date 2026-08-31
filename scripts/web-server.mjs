@@ -368,12 +368,16 @@ function getPaseoTabsAnalytics() {
           } else if (inputTokens >= 50000 || turns >= 18) {
             bloatLevel = "warning"; // 50k - 90k tokens
           }
+          const provider = data.provider || "codex";
+          const model = data.config?.model || data.runtimeInfo?.model || null;
 
           tabs.push({
             id: data.id,
             title: data.title || "Cuộc trò chuyện Paseo",
             cwd: data.cwd || "",
             workspaceId: data.workspaceId || wks,
+            provider,
+            model,
             updatedAt: data.updatedAt || new Date(stats.mtimeMs).toISOString(),
             mtime: stats.mtimeMs,
             lastStatus: data.lastStatus || "unknown",
@@ -414,16 +418,18 @@ async function createPaseoFreshHandoffTab(agentId, promptOverride = null) {
   const rawTitle = target.title.replace(/\[Tiếp nối\]\s*/g, "").trim();
   const newTitle = `[Tiếp nối] ${rawTitle || "Tác vụ"}`;
   const cwd = target.cwd || HOME_DIR;
+  const provider = target.provider || "codex";
+  const modelFlag = target.model ? ` --model "${target.model}"` : "";
 
   const handoffPrompt = promptOverride && promptOverride.trim()
     ? promptOverride.trim()
     : `Tiếp nối nhiệm vụ: "${rawTitle}". Hãy phân tích nhanh trạng thái hiện tại của code trong thư mục và hoàn thành các bước tiếp theo. Giữ câu trả lời súc tích, đi thẳng vào code sửa đổi.`;
 
-  console.log(`[PaseoHandoff] Spawning fresh agent for "${newTitle}" in "${cwd}"...`);
+  console.log(`[PaseoHandoff] Spawning fresh agent for "${newTitle}" in "${cwd}" (provider: ${provider})...`);
 
   let newAgentId = null;
   try {
-    const cmd = `"${PASEO_CLI_PATH}" run --cwd "${cwd.replace(/"/g, '\\"')}" --title "${newTitle.replace(/"/g, '\\"')}" -d --json "${handoffPrompt.replace(/"/g, '\\"')}"`;
+    const cmd = `"${PASEO_CLI_PATH}" run --provider "${provider}"${modelFlag} --cwd "${cwd.replace(/"/g, '\\"')}" --title "${newTitle.replace(/"/g, '\\"')}" -d --json "${handoffPrompt.replace(/"/g, '\\"')}"`;
     const { stdout } = await execAsync(cmd);
     try {
       const parsed = JSON.parse(stdout);
