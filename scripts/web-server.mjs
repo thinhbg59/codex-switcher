@@ -869,41 +869,120 @@ async function autoResumePaseoTask({ targetAgentId = null, targetAccountId = nul
   };
 }
 
-// Background monitor for Paseo Quota Errors (runs every 10s)
+let wasAllExhausted = false;
+let pendingPausedAgentIds = new Set();
+
+async function notifyQuotaRecoveredAndResumed(bestCandidate, resumedCount, config) {
+  const tgMsg = `🎉 *QUOTA ĐÃ ĐƯỢC RESET - TỰ ĐỘNG TIẾP TỤC PASEO!* 🚀\n\n✅ *Tài khoản đã mở lại Quota:* \`${bestCandidate.name}\` (Còn *${bestCandidate.remaining_percent}%* quota)\n\n⚡ *Tác vụ tự động:* Đã chuyển sang tài khoản này và tiếp tục xử lý *${resumedCount}* tab Paseo đang tạm dừng.\n\n👉 _Paseo đang tiếp tục làm việc bình thường!_`;
+
+  if (config.telegram?.enabled && config.telegram?.botToken && config.telegram?.chatId) {
+    await sendTelegramNotification({
+      botToken: config.telegram.botToken,
+      chatId: config.telegram.chatId,
+      text: tgMsg,
+      replyMarkup: {
+        inline_keyboard: [
+          [{ text: "📊 Thống kê Token & Quota", callback_data: "token_win:24h" }],
+          [{ text: "🎯 Quản lý Tabs Paseo", callback_data: "cmd_tabs" }],
+          [{ text: "📱 Mở Dashboard", url: DASHBOARD_URL }],
+        ],
+      },
+    }).catch((e) => console.error("[QuotaRecovery] Telegram error:", e.message));
+  }
+
+  if (config.ntfy?.enabled && config.ntfy?.topic) {
+    await sendNtfyNotification({
+      server: config.ntfy.server,
+      topic: config.ntfy.topic,
+      title: `🎉 Quota đã reset: ${bestCandidate.name}`,
+      message: `Đã tự động đổi sang ${bestCandidate.name} (còn ${bestCandidate.remaining_percent}%) và tiếp tục ${resumedCount} tab Paseo.`,
+      tags: ["tada", "rocket", "white_check_mark"],
+      clickUrl: DASHBOARD_URL,
+    }).catch((e) => console.error("[QuotaRecovery] ntfy error:", e.message));
+  }
+}
+
+// Background monitor for Paseo Quota Errors & Auto-Recovery (runs every 10s)
 setInterval(async () => {
   try {
     const config = readNotificationConfig();
     if (!config.autoResumePaseo && !config.autoSwitch?.enabled) return;
 
+    const overview = await getSystemQuotaOverview().catch(() => null);
+    if (!overview || overview.totalAccounts === 0) return;
+
+    const allExhausted = overview.accounts.every((a) => a.used_percent >= 95);
+
+    // CASE 1: All accounts are exhausted -> mark wasAllExhausted and track errored tabs
+    if (allExhausted) {
+      wasAllExhausted = true;
+      const errored = detectPaseoQuotaErrors();
+      for (const a of errored) {
+        pendingPausedAgentIds.add(a.id);
+      }
+      return;
+    }
+
+    // CASE 2: Quota has RECOVERED after being all-exhausted!
+    if (wasAllExhausted && !allExhausted) {
+      wasAllExhausted = false;
+      const availableCandidates = overview.accounts.filter((a) => a.used_percent < 95);
+      availableCandidates.sort((a, b) => a.used_percent - b.used_percent);
+      const bestCandidate = availableCandidates[0];
+
+      if (bestCandidate) {
+        console.log(`[QuotaRecovery] 🎉 Quota has reset on account ${bestCandidate.name} (${bestCandidate.used_percent}% used). Resuming pending Paseo tabs...`);
+
+        const currentErrored = detectPaseoQuotaErrors();
+        for (const a of currentErrored) {
+          pendingPausedAgentIds.add(a.id);
+        }
+
+        const agentIdsToResume = Array.from(pendingPausedAgentIds);
+        pendingPausedAgentIds.clear();
+
+        if (agentIdsToResume.length > 0) {
+          // Switch to best candidate & reload Paseo worker in-place
+          await hotReloadAccountForPaseo(bestCandidate.id);
+
+          let resumedCount = 0;
+          for (const agentId of agentIdsToResume) {
+            try {
+              const agent = currentErrored.find((t) => t.id === agentId) || { id: agentId, title: "Paseo Agent" };
+              const prompt = generateSmartResumePrompt(agent, config.smartResumeMode || "smart");
+              await execAsync(`"${PASEO_CLI_PATH}" send ${agentId} "${prompt.replace(/"/g, '\\"')}" --no-wait`);
+              lastHandledPaseoErrors[agentId] = Date.now();
+              resumedCount++;
+            } catch (err) {
+              console.error(`[QuotaRecovery] Failed to resume agent ${agentId}:`, err.message);
+            }
+          }
+
+          console.log(`[QuotaRecovery] Successfully auto-resumed ${resumedCount} tab(s) with account ${bestCandidate.name}`);
+          await notifyQuotaRecoveredAndResumed(bestCandidate, resumedCount, config);
+          return;
+        }
+      }
+    }
+
+    // CASE 3: Normal background detection for newly errored tabs when accounts ARE available
     const errored = detectPaseoQuotaErrors();
     if (errored.length === 0) return;
 
     const now = Date.now();
-    // Filter to unhandled errors in the last 3 minutes
     const newlyErrored = errored.filter((a) => {
       if (now - a.mtime > 3 * 60 * 1000) return false;
       const lastHandled = lastHandledPaseoErrors[a.id];
       return !lastHandled || now - lastHandled > 3 * 60 * 1000;
     });
 
-    if (newlyErrored.length === 0) return;
-
-    // ANTI-SPAM CHECK: If all accounts are exhausted, DO NOT reload Paseo or send prompts!
-    const overview = await getSystemQuotaOverview().catch(() => null);
-    if (overview && overview.accounts.every((a) => a.used_percent >= 95)) {
-      console.log(`[PaseoMonitor] 🛑 Detected ${newlyErrored.length} errored tabs, but ALL accounts are exhausted (0% quota). Skipping auto-resume to prevent spam.`);
+    if (newlyErrored.length > 0) {
+      console.log(`[PaseoMonitor] Detected ${newlyErrored.length} newly errored Paseo tab(s). Auto-resuming...`);
       for (const a of newlyErrored) {
         lastHandledPaseoErrors[a.id] = now;
       }
-      await notifyAllAccountsExhausted(overview, config);
-      return;
+      await autoResumePaseoTask();
     }
-
-    console.log(`[PaseoMonitor] Detected ${newlyErrored.length} Paseo agent(s) with quota error. Resuming all...`);
-    for (const a of newlyErrored) {
-      lastHandledPaseoErrors[a.id] = now;
-    }
-    await autoResumePaseoTask();
   } catch (err) {
     console.error("[PaseoMonitor] Check error:", err.message);
   }
