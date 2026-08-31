@@ -28,6 +28,17 @@ export interface SystemQuotaOverview {
   midCount: number;
   highCount: number;
   exhaustedCount: number;
+  earliestReset?: {
+    account: {
+      id: string;
+      name: string;
+      email?: string;
+    };
+    resets_at: number;
+    timeFormatted: string;
+    durationText: string;
+    remainingMinutes: number;
+  } | null;
   activeAccount: {
     id: string;
     name: string;
@@ -431,6 +442,23 @@ export function AnalyticsWidget({ masked = false }: { masked?: boolean }) {
                   </span>
                 )}
               </div>
+
+              {/* Earliest Reset Banner */}
+              {quotaOverview.earliestReset && (
+                <div className="flex items-center justify-between gap-2 px-3 py-1.5 rounded-lg bg-indigo-50/80 dark:bg-indigo-950/40 border border-indigo-200/60 dark:border-indigo-800/40 text-[11px] text-indigo-900 dark:text-indigo-200">
+                  <div className="flex items-center gap-1.5 truncate">
+                    <span className="shrink-0">⏳</span>
+                    <span>
+                      <strong className="font-semibold">Reset gần nhất:</strong>{" "}
+                      <BlurredText blur={masked}>{quotaOverview.earliestReset.account.name}</BlurredText> lúc{" "}
+                      <strong>{quotaOverview.earliestReset.timeFormatted}</strong>
+                    </span>
+                  </div>
+                  <span className="shrink-0 font-bold px-2 py-0.5 rounded-md bg-indigo-100 dark:bg-indigo-900/60 text-indigo-700 dark:text-indigo-300 border border-indigo-200/60 dark:border-indigo-700/60 font-mono">
+                    sau {quotaOverview.earliestReset.durationText}
+                  </span>
+                </div>
+              )}
             </div>
           )}
 

@@ -639,17 +639,26 @@ async function switchAccountAndRestartPaseo(targetAccountId = null, forceRestart
           account: acc,
           usage: u,
           used: typeof u?.primary_used_percent === "number" ? u.primary_used_percent : 0,
+          resets_at: u?.primary_resets_at || null,
         });
       } catch {
-        candidatesWithUsage.push({ account: acc, usage: null, used: 100 });
+        candidatesWithUsage.push({ account: acc, usage: null, used: 100, resets_at: null });
       }
     }
     candidatesWithUsage.sort((a, b) => a.used - b.used);
-    target = candidatesWithUsage[0].account;
+
+    // Strict check: if all candidates are exhausted (>=95% used), do NOT switch or spam
+    if (candidatesWithUsage[0] && candidatesWithUsage[0].used >= 95) {
+      const earliest = findEarliestResetAccount(candidatesWithUsage);
+      throw new Error(
+        `Tất cả tài khoản đều đã hết quota 5-hour (${candidatesWithUsage[0].used}% used). Acc reset sớm nhất: ${earliest ? `${earliest.account.name} lúc ${earliest.timeFormatted} (${earliest.durationText})` : "Chưa xác định"}`
+      );
+    }
+    target = candidatesWithUsage[0]?.account;
   }
 
   if (!target) {
-    throw new Error("Không tìm thấy tài khoản mục tiêu.");
+    throw new Error("Không tìm thấy tài khoản mục tiêu khả dụng.");
   }
 
   // Check if Paseo is currently running
@@ -696,17 +705,26 @@ async function hotReloadAccountForPaseo(targetAccountId = null) {
           account: acc,
           usage: u,
           used: typeof u?.primary_used_percent === "number" ? u.primary_used_percent : 0,
+          resets_at: u?.primary_resets_at || null,
         });
       } catch {
-        candidatesWithUsage.push({ account: acc, usage: null, used: 100 });
+        candidatesWithUsage.push({ account: acc, usage: null, used: 100, resets_at: null });
       }
     }
     candidatesWithUsage.sort((a, b) => a.used - b.used);
-    target = candidatesWithUsage[0].account;
+
+    // Strict check: if all candidates are exhausted (>=95% used), do NOT switch or spam
+    if (candidatesWithUsage[0] && candidatesWithUsage[0].used >= 95) {
+      const earliest = findEarliestResetAccount(candidatesWithUsage);
+      throw new Error(
+        `Tất cả tài khoản đều đã hết quota 5-hour (${candidatesWithUsage[0].used}% used). Acc reset sớm nhất: ${earliest ? `${earliest.account.name} lúc ${earliest.timeFormatted} (${earliest.durationText})` : "Chưa xác định"}`
+      );
+    }
+    target = candidatesWithUsage[0]?.account;
   }
 
   if (!target) {
-    throw new Error("Không tìm thấy tài khoản mục tiêu.");
+    throw new Error("Không tìm thấy tài khoản mục tiêu khả dụng.");
   }
 
   // 1. Switch account in Codex Switcher (updates ~/.codex/auth.json)
@@ -739,11 +757,24 @@ async function hotReloadAccountForPaseo(targetAccountId = null) {
 
 async function autoResumePaseoTask({ targetAgentId = null, targetAccountId = null, promptMessage = null, restartPaseo = false } = {}) {
   const config = readNotificationConfig();
-  const effectivePrompt = (typeof promptMessage === "string" && promptMessage.trim())
-    ? promptMessage.trim()
-    : (config.resumePrompt || "tiếp tục");
 
-  // 1. Detect ALL target agents with quota errors
+  // 1. ANTI-SPAM SAFEGUARD: Check if ALL accounts are exhausted before attempting any reload or switch
+  if (!targetAccountId) {
+    const overview = await getSystemQuotaOverview().catch(() => null);
+    if (overview && overview.accounts.every((a) => a.used_percent >= 95)) {
+      const earliest = overview.earliestReset;
+      console.log(`[PaseoAutoResume] 🛑 ALL accounts are exhausted (0% remaining). Pausing auto-resume. Earliest reset: ${earliest?.account.name || "N/A"} (${earliest?.durationText || "N/A"}).`);
+      await notifyAllAccountsExhausted(overview, config);
+      return {
+        ok: false,
+        error: "all_accounts_exhausted",
+        message: `Tất cả tài khoản đều đã hết hạn mức 5-hour (0% quota). Đã tự động tạm dừng xoay tua để tránh spam. Acc reset sớm nhất: ${earliest ? `${earliest.account.name} lúc ${earliest.timeFormatted} (sau ${earliest.durationText})` : "Chưa xác định"}`,
+        earliestReset: earliest,
+      };
+    }
+  }
+
+  // 2. Detect ALL target agents with quota errors
   let targetAgents = [];
   const erroredList = detectPaseoQuotaErrors();
 
@@ -754,21 +785,29 @@ async function autoResumePaseoTask({ targetAgentId = null, targetAccountId = nul
     targetAgents = erroredList;
   }
 
-  // 2. Switch account: In-place Hot Reload vs Full Restart
+  // 3. Switch account: In-place Hot Reload vs Full Restart
   let switchRes;
-  if (restartPaseo) {
-    switchRes = await switchAccountAndRestartPaseo(targetAccountId);
-    await new Promise((r) => setTimeout(r, 3500));
-  } else {
-    switchRes = await hotReloadAccountForPaseo(targetAccountId);
-    await new Promise((r) => setTimeout(r, 800));
+  try {
+    if (restartPaseo) {
+      switchRes = await switchAccountAndRestartPaseo(targetAccountId);
+      await new Promise((r) => setTimeout(r, 3500));
+    } else {
+      switchRes = await hotReloadAccountForPaseo(targetAccountId);
+      await new Promise((r) => setTimeout(r, 800));
+    }
+  } catch (switchErr) {
+    console.error("[PaseoAutoResume] Switch account error:", switchErr.message);
+    return {
+      ok: false,
+      error: switchErr.message,
+    };
   }
 
   const switchedTo = switchRes.switchedTo;
   const newUsed = typeof switchRes.usage?.primary_used_percent === "number" ? switchRes.usage.primary_used_percent : 0;
   const newRemaining = Math.max(0, 100 - newUsed);
 
-  // 3. Send prompt to ALL errored agents
+  // 4. Send prompt to ALL errored agents
   const results = [];
   for (const agent of targetAgents) {
     if (!agent.id) continue;
@@ -788,7 +827,7 @@ async function autoResumePaseoTask({ targetAgentId = null, targetAccountId = nul
     results.push({ agent, messageSent, sendError, promptSent: agentPrompt });
   }
 
-  // 4. Notify via Telegram & ntfy
+  // 5. Notify via Telegram & ntfy
   if (config.telegram?.enabled && config.telegram?.botToken && config.telegram?.chatId) {
     const resumedListText = results.length > 0
       ? results.map((r, i) => `${i + 1}. \`${r.agent.title || r.agent.id}\`\n   💬 _Prompt:_ "${r.promptSent}"`).join("\n")
@@ -847,13 +886,24 @@ setInterval(async () => {
       return !lastHandled || now - lastHandled > 3 * 60 * 1000;
     });
 
-    if (newlyErrored.length > 0) {
-      console.log(`[PaseoMonitor] Detected ${newlyErrored.length} Paseo agent(s) with quota error. Resuming all...`);
+    if (newlyErrored.length === 0) return;
+
+    // ANTI-SPAM CHECK: If all accounts are exhausted, DO NOT reload Paseo or send prompts!
+    const overview = await getSystemQuotaOverview().catch(() => null);
+    if (overview && overview.accounts.every((a) => a.used_percent >= 95)) {
+      console.log(`[PaseoMonitor] 🛑 Detected ${newlyErrored.length} errored tabs, but ALL accounts are exhausted (0% quota). Skipping auto-resume to prevent spam.`);
       for (const a of newlyErrored) {
         lastHandledPaseoErrors[a.id] = now;
       }
-      await autoResumePaseoTask();
+      await notifyAllAccountsExhausted(overview, config);
+      return;
     }
+
+    console.log(`[PaseoMonitor] Detected ${newlyErrored.length} Paseo agent(s) with quota error. Resuming all...`);
+    for (const a of newlyErrored) {
+      lastHandledPaseoErrors[a.id] = now;
+    }
+    await autoResumePaseoTask();
   } catch (err) {
     console.error("[PaseoMonitor] Check error:", err.message);
   }
@@ -1020,6 +1070,34 @@ setInterval(() => {
   void updateTokenAnalytics();
 }, 45 * 1000);
 
+function findEarliestResetAccount(accountsWithUsage) {
+  if (!Array.isArray(accountsWithUsage)) return null;
+  const nowSec = Math.floor(Date.now() / 1000);
+  const valid = accountsWithUsage.filter((a) => typeof a.resets_at === "number" && a.resets_at > nowSec);
+  if (valid.length === 0) return null;
+  valid.sort((a, b) => a.resets_at - b.resets_at);
+  const earliest = valid[0];
+  const diffSec = Math.max(0, earliest.resets_at - nowSec);
+  const diffMin = Math.round(diffSec / 60);
+  const hours = Math.floor(diffMin / 60);
+  const mins = diffMin % 60;
+  const d = new Date(earliest.resets_at * 1000);
+  const timeStr = d.toLocaleTimeString("vi-VN", { hour: "2-digit", minute: "2-digit" });
+  const dateStr = d.toLocaleDateString("vi-VN", { day: "2-digit", month: "2-digit" });
+
+  return {
+    account: {
+      id: earliest.id,
+      name: earliest.name,
+      email: earliest.email,
+    },
+    resets_at: earliest.resets_at,
+    timeFormatted: `${timeStr} ngày ${dateStr}`,
+    durationText: hours > 0 ? `${hours}h ${mins}m` : `${mins} phút`,
+    remainingMinutes: diffMin,
+  };
+}
+
 async function getSystemQuotaOverview() {
   const accounts = await invokeBackendApi("list_accounts").catch(() => []);
   const active = await invokeBackendApi("get_active_account_info").catch(() => null);
@@ -1071,6 +1149,7 @@ async function getSystemQuotaOverview() {
   const avgUsed = validUsageCount > 0 ? sumUsed / validUsageCount : 0;
   const avgRemaining = Math.max(0, 100 - avgUsed);
   const poolRemainingRate = totalMaxPercent > 0 ? (totalRemainingPercent / totalMaxPercent) * 100 : 0;
+  const earliestReset = findEarliestResetAccount(accountsWithUsage);
 
   return {
     totalAccounts: accounts.length,
@@ -1084,6 +1163,7 @@ async function getSystemQuotaOverview() {
     exhaustedCount,
     avgUsedPercent: parseFloat(avgUsed.toFixed(1)),
     avgRemainingPercent: parseFloat(avgRemaining.toFixed(1)),
+    earliestReset,
     activeAccount: active
       ? {
           id: active.id,
@@ -1107,83 +1187,181 @@ function formatTokenCount(num) {
 // ==================== AUTO-SWITCH & LOW QUOTA MONITOR ====================
 
 let lastAlerts = {};
+let lastAllExhaustedAlert = { time: 0, resetEpoch: 0 };
+let lastLowPoolAlert = { time: 0, rate: 100 };
+
+async function notifyAllAccountsExhausted(overview, config) {
+  const earliest = overview.earliestReset;
+  const now = Date.now();
+  const cooldownMs = (config.cooldownMinutes || 30) * 60 * 1000;
+
+  // Don't alert if already alerted recently for the same reset epoch
+  if (lastAllExhaustedAlert.time && now - lastAllExhaustedAlert.time < cooldownMs) {
+    if (earliest && earliest.resets_at === lastAllExhaustedAlert.resetEpoch) {
+      return;
+    }
+  }
+
+  lastAllExhaustedAlert = {
+    time: now,
+    resetEpoch: earliest ? earliest.resets_at : 0,
+  };
+
+  const totalAcc = overview.totalAccounts;
+  const earliestText = earliest
+    ? `👤 *Tài khoản:* \`${earliest.account.name}\`\n⏰ *Thời gian reset:* *${earliest.timeFormatted}* (sau *${earliest.durationText}*)`
+    : "_Đang cập nhật thời gian reset từ máy chủ OpenAI..._";
+
+  const tgMsg = `🚨 *CẢNH BÁO: TỔNG QUOTA CODEX TOÀN BỘ ${totalAcc} TÀI KHOẢN ĐÃ CẠN KIỆT (0%)!*\n\n📊 *Tổng Quota còn lại:* *${overview.totalRemainingPercent}% / ${overview.totalMaxPercent}%* (Tất cả tài khoản đều đã chạm trần 5-Hour Limit).\n\n⏳ *TÀI KHOẢN ĐƯỢC RESET GẦN NHẤT:*\n${earliestText}\n\n🛑 *Bảo vệ hệ thống:* Đã tự động *TẠM DỪNG* việc xoay tua tài khoản và reload Paseo để tránh spam và giữ phiên làm việc an toàn.\n\n👉 _Hệ thống sẽ tự động khôi phục khi có tài khoản được reset!_`;
+
+  if (config.telegram?.enabled && config.telegram?.botToken && config.telegram?.chatId) {
+    await sendTelegramNotification({
+      botToken: config.telegram.botToken,
+      chatId: config.telegram.chatId,
+      text: tgMsg,
+      replyMarkup: {
+        inline_keyboard: [
+          [{ text: "📊 Thống kê Token & Quota", callback_data: "token_win:24h" }],
+          [{ text: "📋 Danh sách tài khoản", callback_data: "cmd_list" }],
+          [{ text: "📱 Mở Dashboard", url: DASHBOARD_URL }],
+        ],
+      },
+    }).catch((e) => console.error("[AllExhausted] Telegram alert error:", e.message));
+  }
+
+  if (config.ntfy?.enabled && config.ntfy?.topic) {
+    await sendNtfyNotification({
+      server: config.ntfy.server,
+      topic: config.ntfy.topic,
+      title: `🚨 Tổng Quota Codex đã cạn kiệt (0%)!`,
+      message: `Tất cả ${totalAcc} tài khoản đã hết quota 5-hour. Acc reset sớm nhất: ${earliest?.account.name || "N/A"} (${earliest?.durationText || "N/A"}). Đã tạm dừng auto-switch & reload Paseo để tránh spam.`,
+      tags: ["warning", "octagonal_sign"],
+      clickUrl: DASHBOARD_URL,
+    }).catch((e) => console.error("[AllExhausted] ntfy alert error:", e.message));
+  }
+}
+
+async function notifyLowPoolQuota(overview, config) {
+  const earliest = overview.earliestReset;
+  const now = Date.now();
+  const cooldownMs = (config.cooldownMinutes || 45) * 60 * 1000;
+
+  if (lastLowPoolAlert.time && now - lastLowPoolAlert.time < cooldownMs && overview.poolRemainingRate >= lastLowPoolAlert.rate - 2) {
+    return;
+  }
+
+  lastLowPoolAlert = { time: now, rate: overview.poolRemainingRate };
+
+  const totalAcc = overview.totalAccounts;
+  const earliestText = earliest
+    ? `⏳ *Tài khoản reset gần nhất:* \`${earliest.account.name}\` lúc *${earliest.timeFormatted}* (sau *${earliest.durationText}*)`
+    : "";
+
+  const tgMsg = `⚠️ *CẢNH BÁO: TỔNG QUOTA HỆ THỐNG SẮP HẾT!*\n\n📊 *Tổng Quota còn lại:* *${overview.totalRemainingPercent}% / ${overview.totalMaxPercent}%* (Tỷ lệ khả dụng: *${overview.poolRemainingRate}%*)\n🔋 *Trạng thái:* ${overview.readyCount} sẵn sàng, ${overview.midCount} trung bình, ${overview.exhaustedCount} đã cạn\n${earliestText ? `\n${earliestText}\n` : ""}\n👉 _Khuyến nghị chuyển tab hoặc phân bổ tác vụ hợp lý._`;
+
+  if (config.telegram?.enabled && config.telegram?.botToken && config.telegram?.chatId) {
+    await sendTelegramNotification({
+      botToken: config.telegram.botToken,
+      chatId: config.telegram.chatId,
+      text: tgMsg,
+      replyMarkup: {
+        inline_keyboard: [
+          [{ text: "📊 Thống kê Token & Quota", callback_data: "token_win:24h" }],
+          [{ text: "📋 Danh sách tài khoản", callback_data: "cmd_list" }],
+          [{ text: "📱 Mở Dashboard", url: DASHBOARD_URL }],
+        ],
+      },
+    }).catch((e) => console.error("[LowPool] Telegram alert error:", e.message));
+  }
+
+  if (config.ntfy?.enabled && config.ntfy?.topic) {
+    await sendNtfyNotification({
+      server: config.ntfy.server,
+      topic: config.ntfy.topic,
+      title: `⚠️ Tổng Quota Codex thấp (${overview.poolRemainingRate}%)`,
+      message: `Tổng Quota còn ${overview.totalRemainingPercent}% / ${overview.totalMaxPercent}%. ${earliest ? `Acc reset sớm nhất: ${earliest.account.name} (${earliest.durationText}).` : ""}`,
+      tags: ["warning"],
+      clickUrl: DASHBOARD_URL,
+    }).catch((e) => console.error("[LowPool] ntfy alert error:", e.message));
+  }
+}
 
 async function checkLowQuotaAndNotify() {
   try {
     const config = readNotificationConfig();
-    const activeAccount = await invokeBackendApi("get_active_account_info").catch(() => null);
+    if (!config.telegram?.enabled && !config.ntfy?.enabled && !config.autoSwitch?.enabled) return;
+
+    const overview = await getSystemQuotaOverview().catch(() => null);
+    if (!overview || overview.totalAccounts === 0) return;
+
+    const allExhausted = overview.accounts.every((a) => a.used_percent >= 95);
+
+    // 1. ALL ACCOUNTS EXHAUSTED CHECK (Anti-Spam & Global Alert)
+    if (allExhausted) {
+      console.log(`[QuotaMonitor] 🛑 ALL ${overview.totalAccounts} accounts are exhausted (0% remaining).`);
+      await notifyAllAccountsExhausted(overview, config);
+      return;
+    }
+
+    // 2. LOW POOL QUOTA CHECK (Pool remaining rate <= 15%)
+    if (overview.poolRemainingRate <= 15) {
+      await notifyLowPoolQuota(overview, config);
+    }
+
+    // 3. AUTO-SWITCH CHECK FOR ACTIVE ACCOUNT
+    const activeAccount = overview.activeAccount;
     if (!activeAccount || !activeAccount.id) return;
 
-    const usage = await invokeBackendApi("get_usage", { accountId: activeAccount.id }).catch(() => null);
-    if (!usage || typeof usage.primary_used_percent !== "number") return;
-
-    const used = usage.primary_used_percent;
+    const activeUsage = overview.accounts.find((a) => a.id === activeAccount.id);
+    const used = activeUsage ? activeUsage.used_percent : 0;
     const remaining = Math.max(0, 100 - used);
     const threshold = config.threshold || 80;
     const autoSwitchThreshold = config.autoSwitch?.threshold || 95;
 
-    // 1. AUTO-SWITCH CHECK
     if (config.autoSwitch?.enabled && used >= autoSwitchThreshold) {
-      const allAccounts = await invokeBackendApi("list_accounts").catch(() => []);
-      const otherAccounts = allAccounts.filter((a) => a.id !== activeAccount.id);
+      const otherCandidates = overview.accounts.filter((a) => a.id !== activeAccount.id && a.used_percent < autoSwitchThreshold);
+      otherCandidates.sort((a, b) => a.used_percent - b.used_percent);
+      const bestCandidate = otherCandidates[0];
 
-      if (otherAccounts.length > 0) {
-        // Fetch usage for other accounts
-        const candidatesWithUsage = [];
-        for (const candidate of otherAccounts) {
-          try {
-            const candUsage = await invokeBackendApi("get_usage", { accountId: candidate.id });
-            const candUsed = typeof candUsage?.primary_used_percent === "number" ? candUsage.primary_used_percent : 0;
-            candidatesWithUsage.push({ account: candidate, usage: candUsage, used: candUsed });
-          } catch {
-            candidatesWithUsage.push({ account: candidate, usage: null, used: 100 });
-          }
+      if (bestCandidate) {
+        console.log(`[AutoSwitch] Switching from ${activeAccount.name} (${used}%) to ${bestCandidate.name} (${bestCandidate.used_percent}%)...`);
+        await invokeBackendApi("switch_account", { accountId: bestCandidate.id });
+
+        const candRemaining = bestCandidate.remaining_percent;
+        const candResetText = formatResetDuration(bestCandidate.resets_at);
+
+        // Notify via Telegram
+        if (config.telegram?.enabled && config.telegram?.botToken && config.telegram?.chatId) {
+          const tgMsg = `🔄 *TỰ ĐỘNG CHUYỂN TÀI KHOẢN THÀNH CÔNG!*\n\n⚠️ *Tài khoản cũ:* \`${activeAccount.name}\` (Đã dùng ${used.toFixed(0)}%)\n✅ *Tài khoản mới:* \`${bestCandidate.name}\`\n📊 *Hạn mức mới:* Đã dùng *${bestCandidate.used_percent.toFixed(0)}%* (Còn lại: *${candRemaining.toFixed(0)}%*)\n${candResetText ? `⏳ *Reset:* ${candResetText}\n` : ""}\n👉 _Codex đã được chuyển sang tài khoản mới tự động để không bị ngắt quãng._`;
+          await sendTelegramNotification({
+            botToken: config.telegram.botToken,
+            chatId: config.telegram.chatId,
+            text: tgMsg,
+            replyMarkup: {
+              inline_keyboard: [[{ text: "📱 Mở Dashboard", url: DASHBOARD_URL }]],
+            },
+          }).catch((e) => console.error("[AutoSwitch] Telegram error:", e.message));
         }
 
-        // Sort by lowest usage first
-        candidatesWithUsage.sort((a, b) => a.used - b.used);
-        const bestCandidate = candidatesWithUsage[0];
-
-        if (bestCandidate && bestCandidate.used < autoSwitchThreshold) {
-          console.log(`[AutoSwitch] Switching from ${activeAccount.name} (${used}%) to ${bestCandidate.account.name} (${bestCandidate.used}%)...`);
-          await invokeBackendApi("switch_account", { accountId: bestCandidate.account.id });
-
-          const candRemaining = Math.max(0, 100 - bestCandidate.used);
-          const candResetText = formatResetDuration(bestCandidate.usage?.primary_resets_at);
-
-          // Notify via Telegram
-          if (config.telegram?.enabled && config.telegram?.botToken && config.telegram?.chatId) {
-            const tgMsg = `🔄 *TỰ ĐỘNG CHUYỂN TÀI KHOẢN THÀNH CÔNG!*\n\n⚠️ *Tài khoản cũ:* \`${activeAccount.name}\` (Đã dùng ${used.toFixed(0)}%)\n✅ *Tài khoản mới:* \`${bestCandidate.account.name}\`\n📊 *Hạn mức mới:* Đã dùng *${bestCandidate.used.toFixed(0)}%* (Còn lại: *${candRemaining.toFixed(0)}%*)\n${candResetText ? `⏳ *Reset:* ${candResetText}\n` : ""}\n👉 _Codex đã được chuyển sang tài khoản mới tự động để không bị ngắt quãng._`;
-            await sendTelegramNotification({
-              botToken: config.telegram.botToken,
-              chatId: config.telegram.chatId,
-              text: tgMsg,
-              replyMarkup: {
-                inline_keyboard: [[{ text: "📱 Mở Dashboard", url: DASHBOARD_URL }]],
-              },
-            }).catch((e) => console.error("[AutoSwitch] Telegram error:", e.message));
-          }
-
-          // Notify via ntfy
-          if (config.ntfy?.enabled && config.ntfy?.topic) {
-            await sendNtfyNotification({
-              server: config.ntfy.server,
-              topic: config.ntfy.topic,
-              title: `🔄 Tự động chuyển: ${bestCandidate.account.name}`,
-              message: `Đã tự động đổi sang ${bestCandidate.account.name} (còn ${candRemaining.toFixed(0)}%) do ${activeAccount.name} đạt ${used.toFixed(0)}%.`,
-              tags: ["repeat", "white_check_mark"],
-              clickUrl: DASHBOARD_URL,
-            }).catch((e) => console.error("[AutoSwitch] ntfy error:", e.message));
-          }
-
-          lastAlerts[activeAccount.id] = { time: Date.now(), used };
-          return;
+        // Notify via ntfy
+        if (config.ntfy?.enabled && config.ntfy?.topic) {
+          await sendNtfyNotification({
+            server: config.ntfy.server,
+            topic: config.ntfy.topic,
+            title: `🔄 Tự động chuyển: ${bestCandidate.name}`,
+            message: `Đã tự động đổi sang ${bestCandidate.name} (còn ${candRemaining.toFixed(0)}%) do ${activeAccount.name} đạt ${used.toFixed(0)}%.`,
+            tags: ["repeat", "white_check_mark"],
+            clickUrl: DASHBOARD_URL,
+          }).catch((e) => console.error("[AutoSwitch] ntfy error:", e.message));
         }
+
+        lastAlerts[activeAccount.id] = { time: Date.now(), used };
+        return;
       }
     }
 
-    // 2. REGULAR LOW-QUOTA ALERT
-    if ((config.telegram.enabled || config.ntfy.enabled) && used >= threshold) {
+    // 4. REGULAR SINGLE-ACCOUNT LOW-QUOTA ALERT
+    if ((config.telegram?.enabled || config.ntfy?.enabled) && used >= threshold) {
       const now = Date.now();
       const last = lastAlerts[activeAccount.id];
       const cooldownMs = (config.cooldownMinutes || 60) * 60 * 1000;
@@ -1192,16 +1370,11 @@ async function checkLowQuotaAndNotify() {
         return;
       }
 
-      const resetTimeText = formatResetDuration(usage.primary_resets_at);
-
-      // Fetch other accounts for quick-switch inline buttons
-      const allAccounts = await invokeBackendApi("list_accounts").catch(() => []);
-      const otherAccounts = allAccounts.filter((a) => a.id !== activeAccount.id);
-      const switchButtons = [];
-
-      switchButtons.push([
-        { text: "🚀 Đổi Acc & Tiếp tục Paseo", callback_data: "cmd_auto_resume_paseo" },
-      ]);
+      const resetTimeText = formatResetDuration(activeUsage?.resets_at);
+      const otherAccounts = overview.accounts.filter((a) => a.id !== activeAccount.id);
+      const switchButtons = [
+        [{ text: "🚀 Đổi Acc & Tiếp tục Paseo", callback_data: "cmd_auto_resume_paseo" }],
+      ];
 
       for (let i = 0; i < Math.min(3, otherAccounts.length); i++) {
         const acc = otherAccounts[i];
@@ -1211,7 +1384,7 @@ async function checkLowQuotaAndNotify() {
       switchButtons.push([{ text: "📱 Mở Dashboard", url: DASHBOARD_URL }]);
 
       // Telegram notification
-      if (config.telegram.enabled && config.telegram.botToken && config.telegram.chatId) {
+      if (config.telegram?.enabled && config.telegram?.botToken && config.telegram?.chatId) {
         const tgText = `⚠️ *Cảnh báo: Hạn mức Codex sắp hết!*\n\n👤 *Tài khoản:* \`${activeAccount.name}\`\n📊 *Đã sử dụng:* *${used.toFixed(0)}%* (Còn lại: *${remaining.toFixed(0)}%*)\n${resetTimeText ? `⏳ *Reset lúc:* ${resetTimeText}\n` : ""}\n💡 _Bấm nút bên dưới để đổi tài khoản & tiếp tục chat trên Paseo:_`;
         try {
           await sendTelegramNotification({
@@ -1229,7 +1402,7 @@ async function checkLowQuotaAndNotify() {
       }
 
       // ntfy notification
-      if (config.ntfy.enabled && config.ntfy.topic) {
+      if (config.ntfy?.enabled && config.ntfy?.topic) {
         const ntfyTitle = `⚠️ Codex Quota thấp (${used.toFixed(0)}%) - ${activeAccount.name}`;
         const ntfyMsg = `Tài khoản "${activeAccount.name}" đã dùng ${used.toFixed(0)}% (còn ${remaining.toFixed(0)}%).${resetTimeText ? ` Reset: ${resetTimeText}.` : ""}`;
         try {
@@ -1721,7 +1894,7 @@ ${
     ? `🌐 *Tổng quan Quota Hệ Thống:*
 • 🔋 *Tổng Quota còn lại:* *${quotaOverview.totalRemainingPercent}%* / ${quotaOverview.totalMaxPercent}% (${quotaOverview.poolRemainingRate}% dung lượng khả dụng)
 • 👥 Tổng tài khoản: *${quotaOverview.totalAccounts}* (${quotaOverview.readyCount} sẵn sàng 100%, ${quotaOverview.exhaustedCount} hết limit)
-• ⚡ Active: \`${quotaOverview.activeAccount?.name || "Chưa chọn"}\``
+${quotaOverview.earliestReset ? `• ⏳ *Reset sớm nhất:* \`${quotaOverview.earliestReset.account.name}\` lúc *${quotaOverview.earliestReset.timeFormatted}* (sau *${quotaOverview.earliestReset.durationText}*)\n` : ""}• ⚡ Active: \`${quotaOverview.activeAccount?.name || "Chưa chọn"}\``
     : ""
 }
 
