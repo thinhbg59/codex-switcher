@@ -311,6 +311,33 @@ export function PaseoTabsManager({
           </div>
         </div>
 
+        {/* Quota Optimization Guide Banner */}
+        <div className="mt-4 p-3.5 rounded-xl bg-gradient-to-r from-blue-50/70 via-indigo-50/50 to-teal-50/50 dark:from-blue-950/40 dark:via-indigo-950/30 dark:to-teal-950/30 border border-blue-200/80 dark:border-blue-900/50 flex flex-col md:flex-row md:items-center justify-between gap-3 text-xs">
+          <div className="flex items-start gap-2.5">
+            <span className="text-base shrink-0 mt-0.5">💡</span>
+            <div>
+              <span className="font-bold text-gray-900 dark:text-gray-100 block sm:inline">
+                Khuyến Nghị Tối Ưu Quota:
+              </span>
+              <span className="text-gray-600 dark:text-gray-300 sm:ml-1.5">
+                Càng nhiều turns, mỗi câu chat càng nạp lại context lớn. Khuyên dùng:
+              </span>
+            </div>
+          </div>
+
+          <div className="flex flex-wrap items-center gap-2 shrink-0">
+            <div className="px-2.5 py-1 rounded-lg bg-white/90 dark:bg-gray-800 border border-emerald-300 dark:border-emerald-700/80 text-emerald-800 dark:text-emerald-300 font-medium">
+              🟢 <strong>&lt; 15 turns</strong>: Chat bình thường
+            </div>
+            <div className="px-2.5 py-1 rounded-lg bg-white/90 dark:bg-gray-800 border border-amber-300 dark:border-amber-700/80 text-amber-800 dark:text-amber-300 font-medium">
+              🟡 <strong>15 – 25 turns</strong>: Dùng ⚡ <strong>Smart Resume</strong>
+            </div>
+            <div className="px-2.5 py-1 rounded-lg bg-white/90 dark:bg-gray-800 border border-red-300 dark:border-red-700/80 text-red-800 dark:text-red-300 font-medium">
+              🔴 <strong>&gt; 25 turns</strong>: Bấm 🌱 <strong>Tách Tab Mới</strong> (Tiết kiệm &gt;85% Quota)
+            </div>
+          </div>
+        </div>
+
         {/* Filter Toolbar with Statuses */}
         <div className="mt-4 pt-4 border-t border-gray-200 dark:border-gray-700 flex flex-wrap items-center justify-between gap-3">
           {/* Status Filter Pills */}
