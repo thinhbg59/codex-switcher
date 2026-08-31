@@ -2168,7 +2168,9 @@ function App() {
             )}
 
             {/* Token & Quota Analytics Widget */}
-            <AnalyticsWidget />
+            <AnalyticsWidget
+              masked={activeAccount ? maskedAccounts.has(activeAccount.id) : allMasked}
+            />
 
             {/* Active Account */}
             {activeAccount &&

@@ -68,10 +68,19 @@ function formatExact(tokens: number | null | undefined): string {
   return new Intl.NumberFormat().format(tokens);
 }
 
+function BlurredText({ children, blur }: { children: React.ReactNode; blur?: boolean }) {
+  if (!blur) return <>{children}</>;
+  return (
+    <span className="blur-xs select-none transition-[filter] duration-200 hover:blur-none" title="Hover to reveal">
+      {children}
+    </span>
+  );
+}
+
 const STORAGE_COLLAPSED_KEY = "codex_analytics_widget_collapsed";
 const STORAGE_WINDOW_KEY = "codex_analytics_widget_window";
 
-export function AnalyticsWidget() {
+export function AnalyticsWidget({ masked = false }: { masked?: boolean }) {
   const [selectedWindow, setSelectedWindow] = useState<TimeWindowKey>(() => {
     return (localStorage.getItem(STORAGE_WINDOW_KEY) as TimeWindowKey) || "24h";
   });
@@ -418,7 +427,7 @@ export function AnalyticsWidget() {
 
                 {quotaOverview.activeAccount && (
                   <span className="inline-flex items-center gap-1 text-[11px] text-purple-700 dark:text-purple-300 font-medium">
-                    ⚡ Active: <strong className="truncate max-w-[140px]">{quotaOverview.activeAccount.name}</strong>
+                    ⚡ Active: <strong className="truncate max-w-[140px]"><BlurredText blur={masked}>{quotaOverview.activeAccount.name}</BlurredText></strong>
                   </span>
                 )}
               </div>
