@@ -393,16 +393,20 @@ function loadPaseoProjectsAndWorkspaces() {
 
   const projectsMap = new Map();
   const workspacesMap = new Map();
+  const allProjects = [];
+  const allWorkspaces = [];
 
   try {
     if (fs.existsSync(projectsFile)) {
       const prjList = JSON.parse(fs.readFileSync(projectsFile, "utf8"));
       for (const p of prjList) {
-        projectsMap.set(p.projectId, {
+        const item = {
           projectId: p.projectId,
           displayName: p.displayName || path.basename(p.rootPath || "Project"),
           rootPath: p.rootPath,
-        });
+        };
+        projectsMap.set(p.projectId, item);
+        allProjects.push(item);
       }
     }
   } catch {}
@@ -411,18 +415,21 @@ function loadPaseoProjectsAndWorkspaces() {
     if (fs.existsSync(workspacesFile)) {
       const wksList = JSON.parse(fs.readFileSync(workspacesFile, "utf8"));
       for (const w of wksList) {
-        workspacesMap.set(w.workspaceId, {
+        if (w.isArchived || w.archivedAt) continue;
+        const item = {
           workspaceId: w.workspaceId,
           projectId: w.projectId,
           title: w.title || w.displayName || "Main Workspace",
           cwd: w.cwd,
-          branch: w.branch,
-        });
+          branch: w.branch || null,
+        };
+        workspacesMap.set(w.workspaceId, item);
+        allWorkspaces.push(item);
       }
     }
   } catch {}
 
-  return { projectsMap, workspacesMap };
+  return { projectsMap, workspacesMap, allProjects, allWorkspaces };
 }
 
 function getPaseoTabsAnalytics() {
@@ -2273,9 +2280,10 @@ const server = http.createServer(async (req, res) => {
 
   if (url.pathname === "/api/invoke/get_paseo_tabs_analytics") {
     try {
+      const { allProjects, allWorkspaces } = loadPaseoProjectsAndWorkspaces();
       const tabs = getPaseoTabsAnalytics();
       res.writeHead(200, { "Content-Type": "application/json" });
-      res.end(JSON.stringify({ ok: true, tabs }));
+      res.end(JSON.stringify({ ok: true, tabs, allProjects, allWorkspaces }));
     } catch (err) {
       res.writeHead(500, { "Content-Type": "application/json" });
       res.end(JSON.stringify({ error: err.message }));

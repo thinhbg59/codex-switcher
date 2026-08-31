@@ -1,6 +1,20 @@
 import { useState, useEffect, useCallback, useMemo } from "react";
 import { invokeBackend } from "../lib/platform";
 
+export interface PaseoProjectMeta {
+  projectId: string;
+  displayName: string;
+  rootPath: string;
+}
+
+export interface PaseoWorkspaceMeta {
+  workspaceId: string;
+  projectId: string;
+  title: string;
+  cwd: string;
+  branch: string | null;
+}
+
 export interface PaseoTabInfo {
   id: string;
   title: string;
@@ -74,6 +88,8 @@ export function PaseoTabsManager({
   onNavigateHome?: () => void;
 }) {
   const [tabs, setTabs] = useState<PaseoTabInfo[]>([]);
+  const [allProjects, setAllProjects] = useState<PaseoProjectMeta[]>([]);
+  const [allWorkspaces, setAllWorkspaces] = useState<PaseoWorkspaceMeta[]>([]);
   const [isLoading, setIsLoading] = useState<boolean>(false);
   const [actionLoadingId, setActionLoadingId] = useState<string | null>(null);
   const [filterMode, setFilterMode] = useState<TabFilterMode>("all");
@@ -84,11 +100,20 @@ export function PaseoTabsManager({
   const fetchTabs = useCallback(async () => {
     try {
       setIsLoading(true);
-      const res = await invokeBackend<{ ok: boolean; tabs: PaseoTabInfo[] }>(
-        "get_paseo_tabs_analytics"
-      );
+      const res = await invokeBackend<{
+        ok: boolean;
+        tabs: PaseoTabInfo[];
+        allProjects?: PaseoProjectMeta[];
+        allWorkspaces?: PaseoWorkspaceMeta[];
+      }>("get_paseo_tabs_analytics");
       if (res?.tabs) {
         setTabs(res.tabs);
+      }
+      if (res?.allProjects) {
+        setAllProjects(res.allProjects);
+      }
+      if (res?.allWorkspaces) {
+        setAllWorkspaces(res.allWorkspaces);
       }
     } catch (err) {
       console.error("[PaseoTabsManager] Failed to fetch tabs:", err);
@@ -160,8 +185,59 @@ export function PaseoTabsManager({
     }
   };
 
-  // Grouping logic: Project => Workspace => Tabs
+  // Grouping logic: Project => Workspace => Tabs (Including empty workspaces)
   const projectTree = useMemo(() => {
+    const prjMap = new Map<string, ProjectGroup>();
+
+    // 1. Initialize from allProjects
+    for (const p of allProjects) {
+      prjMap.set(p.projectId, {
+        projectId: p.projectId,
+        projectName: p.displayName,
+        rootPath: p.rootPath,
+        workspaces: [],
+        totalTabs: 0,
+        bloatedCount: 0,
+        runningCount: 0,
+        erroredCount: 0,
+        totalTokens: 0,
+      });
+    }
+
+    // 2. Initialize from allWorkspaces
+    for (const w of allWorkspaces) {
+      let prj = prjMap.get(w.projectId);
+      if (!prj) {
+        prj = {
+          projectId: w.projectId,
+          projectName: w.cwd ? w.cwd.split("/").pop() || "Project" : "Project",
+          rootPath: w.cwd,
+          workspaces: [],
+          totalTabs: 0,
+          bloatedCount: 0,
+          runningCount: 0,
+          erroredCount: 0,
+          totalTokens: 0,
+        };
+        prjMap.set(w.projectId, prj);
+      }
+
+      if (!prj.workspaces.some((x) => x.workspaceId === w.workspaceId)) {
+        prj.workspaces.push({
+          workspaceId: w.workspaceId,
+          title: w.title,
+          cwd: w.cwd,
+          branch: w.branch,
+          tabs: [],
+          totalTokens: 0,
+          bloatedCount: 0,
+          runningCount: 0,
+          erroredCount: 0,
+        });
+      }
+    }
+
+    // 3. Filter tabs according to filterMode and searchQuery
     const filtered = tabs.filter((t) => {
       if (filterMode === "running" && t.statusType !== "running") return false;
       if (filterMode === "idle" && t.statusType !== "idle" && t.statusType !== "closed") return false;
@@ -181,8 +257,7 @@ export function PaseoTabsManager({
       return true;
     });
 
-    const prjMap = new Map<string, ProjectGroup>();
-
+    // 4. Distribute tabs into the project & workspace tree
     for (const tab of filtered) {
       const pId = tab.projectId || "default_prj";
       let prj = prjMap.get(pId);
@@ -231,8 +306,18 @@ export function PaseoTabsManager({
       if (tab.hasQuotaError || tab.statusType === "error") wks.erroredCount++;
     }
 
+    // 5. If filter is active (e.g. searching or filtering specific tabs), prune empty workspaces that don't match
+    if (filterMode !== "all" || searchQuery.trim()) {
+      return Array.from(prjMap.values())
+        .map((p) => ({
+          ...p,
+          workspaces: p.workspaces.filter((w) => w.tabs.length > 0),
+        }))
+        .filter((p) => p.workspaces.length > 0);
+    }
+
     return Array.from(prjMap.values());
-  }, [tabs, filterMode, searchQuery]);
+  }, [allProjects, allWorkspaces, tabs, filterMode, searchQuery]);
 
   const totalRunningCount = tabs.filter((t) => t.statusType === "running").length;
   const totalIdleCount = tabs.filter((t) => t.statusType === "idle" || t.statusType === "closed").length;
@@ -574,37 +659,42 @@ export function PaseoTabsManager({
 
                           {/* Level 3: Tabs in Workspace */}
                           {!isWksCollapsed && (
-                            <div className="p-3.5 grid grid-cols-1 md:grid-cols-2 gap-3 bg-white dark:bg-gray-900">
-                              {workspace.tabs.map((tab) => {
-                                const isWorking = actionLoadingId === tab.id;
-                                const bloatBorder =
-                                  tab.bloatLevel === "danger"
-                                    ? "border-red-300 dark:border-red-700 bg-red-50/40 dark:bg-red-950/30"
-                                    : tab.bloatLevel === "warning"
-                                    ? "border-amber-300 dark:border-amber-700 bg-amber-50/40 dark:bg-amber-950/30"
-                                    : "border-gray-200 dark:border-gray-700 bg-gray-50/50 dark:bg-gray-800/80";
+                            workspace.tabs.length === 0 ? (
+                              <div className="p-4 text-center text-xs text-gray-400 dark:text-gray-500 bg-white dark:bg-gray-900 border-t border-gray-100 dark:border-gray-800">
+                                Chưa có tab nào đang hoạt động trong workspace này.
+                              </div>
+                            ) : (
+                              <div className="p-3.5 grid grid-cols-1 md:grid-cols-2 gap-3 bg-white dark:bg-gray-900">
+                                {workspace.tabs.map((tab) => {
+                                  const isWorking = actionLoadingId === tab.id;
+                                  const bloatBorder =
+                                    tab.bloatLevel === "danger"
+                                      ? "border-red-300 dark:border-red-700 bg-red-50/40 dark:bg-red-950/30"
+                                      : tab.bloatLevel === "warning"
+                                      ? "border-amber-300 dark:border-amber-700 bg-amber-50/40 dark:bg-amber-950/30"
+                                      : "border-gray-200 dark:border-gray-700 bg-gray-50/50 dark:bg-gray-800/80";
 
-                                return (
-                                  <div
-                                    key={tab.id}
-                                    className={`p-3.5 rounded-xl border ${bloatBorder} flex flex-col justify-between gap-3 transition-all`}
-                                  >
-                                    <div>
-                                      {/* Tab Title & Status Badge */}
-                                      <div className="flex items-start justify-between gap-2 mb-2">
-                                        <div className="flex items-center gap-2 min-w-0">
-                                          <h4
-                                            className="text-xs font-bold text-gray-900 dark:text-gray-100 truncate"
-                                            title={tab.title}
-                                          >
-                                            {tab.title}
-                                          </h4>
-                                        </div>
+                                  return (
+                                    <div
+                                      key={tab.id}
+                                      className={`p-3.5 rounded-xl border ${bloatBorder} flex flex-col justify-between gap-3 transition-all`}
+                                    >
+                                      <div>
+                                        {/* Tab Title & Status Badge */}
+                                        <div className="flex items-start justify-between gap-2 mb-2">
+                                          <div className="flex items-center gap-2 min-w-0">
+                                            <h4
+                                              className="text-xs font-bold text-gray-900 dark:text-gray-100 truncate"
+                                              title={tab.title}
+                                            >
+                                              {tab.title}
+                                            </h4>
+                                          </div>
 
-                                        {/* Status Badge */}
-                                        <div className="shrink-0 flex items-center gap-1">
-                                          {tab.statusType === "running" ? (
-                                            <span className="px-2 py-0.5 text-[10px] font-bold rounded-md bg-emerald-100 dark:bg-emerald-950/80 text-emerald-800 dark:text-emerald-300 border border-emerald-300 dark:border-emerald-700 flex items-center gap-1 shadow-2xs">
+                                          {/* Status Badge */}
+                                          <div className="shrink-0 flex items-center gap-1">
+                                            {tab.statusType === "running" ? (
+                                              <span className="px-2 py-0.5 text-[10px] font-bold rounded-md bg-emerald-100 dark:bg-emerald-950/80 text-emerald-800 dark:text-emerald-300 border border-emerald-300 dark:border-emerald-700 flex items-center gap-1 shadow-2xs">
                                               <span className="w-1.5 h-1.5 rounded-full bg-emerald-500 animate-ping inline-block"></span>
                                               <span>Đang chạy</span>
                                             </span>
@@ -691,7 +781,7 @@ export function PaseoTabsManager({
                                 );
                               })}
                             </div>
-                          )}
+                          ))}
                         </div>
                       );
                     })}
