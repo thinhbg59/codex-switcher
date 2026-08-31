@@ -5,208 +5,145 @@
 <h1 align="center">Codex Switcher</h1>
 
 <p align="center">
-  A Desktop Application for Managing Multiple OpenAI <a href="https://github.com/openai/codex">Codex</a> Accounts<br>
-  Easily switch between accounts, monitor usage, schedule warm-ups, and stay in control of your quota
+  <strong>The Ultimate Multi-Account Manager, Pooled Quota Monitor & Agentic IDE Automation Ecosystem for OpenAI Codex & Paseo</strong><br>
+  Seamless account rotation, real-time token analytics, background daemon services, Telegram 2-way bot, and 1-click context optimization.
 </p>
 
-## Features
+<p align="center">
+  <a href="#key-features">Features</a> •
+  <a href="#quick-start">Quick Start</a> •
+  <a href="#paseo-tabs-management">Paseo Management</a> •
+  <a href="#remote-control--automation">Remote & Bots</a> •
+  <a href="#windows--macos-services">Background Services</a> •
+  <a href="DOCS.md">Documentation (Tiếng Việt)</a>
+</p>
 
-- **Multi-Account Management** – Add, rename, mask, import, export, and manage multiple Codex accounts in one place
-- **Quick Switching** – Switch between accounts from the main window, native tray menu, or tray popup while preserving rotated ChatGPT sessions
-- **Usage Stats** – View account usage stats for OAuth accounts, including lifetime tokens, daily buckets, streaks, activity insights, and top integrations
-- **Manual Reset Credits** – See available manual reset credits beside each account plan badge, with the closest expiry highlighted as it approaches
-- **Automatic Warm-Up** – Warm up one account or all accounts manually, after each 5-hour reset window, or at specific scheduled times of day
-- **System Tray Controls** – Use the tray popup to switch accounts, inspect quota and active-account stats, refresh usage, open the main window, or quit the app
-- **Tray Display Modes** – Choose between the app icon with session percentage, a text-only hourly/weekly percentage display, or a hidden tray icon
-- **macOS Dock Control** – Keep Codex Switcher in the Dock or run it as a menu bar only app, with a first-close prompt and a tray fallback
-- **Rate-Limit Monitoring** – View real-time 5-hour session and weekly usage, reset timing, credits, and subscription expiry
-- **Blocked Switch Recovery** – Detect running Codex sessions and offer a force-close flow before retrying the account switch
-- **Dual Login Mode** – Authenticate with ChatGPT OAuth or import existing `auth.json` files
+---
 
-## Installation
+## 🌟 Key Features
 
-### Download a Release
+### 1. 🔄 Multi-Account Management & Zero-Downtime Switching
+- **Instant Hot-Reload:** Swap active OpenAI Codex accounts (`~/.codex/auth.json`) in milliseconds without restarting your IDE or losing chat context.
+- **Dual Authentication:** Sign in via official ChatGPT OAuth or import/export standard `auth.json` profiles.
+- **Smart Session Persistence:** Prevents race conditions and refresh-token invalidation across account rotations.
+- **Automatic Warm-Up:** Keep 5-hour quota windows active via scheduled triggers or immediate warm-up bursts.
 
-The easiest way to install Codex Switcher is from the latest GitHub release:
+### 2. 🎯 Dedicated Paseo Project, Workspace & Tabs Route (`#/paseo`)
+- **Hierarchical Tree Structure:** Visualizes your entire development workspace:
+  $$\mathbf{Project} \longrightarrow \mathbf{Workspace} \longrightarrow \mathbf{Tabs}$$
+- **Real-Time Agent Statuses:** Tracks active states:
+  - 🟢 **Running (Đang chạy):** Live inference / tool execution with pulsing indicator.
+  - ⚪ **Idle (Đã dừng):** Task completed, agent ready for input.
+  - 🟡 **Waiting (Chờ phản hồi):** Awaiting user approval or inputs.
+  - 🔴 **Quota Limit (Lỗi Hết Quota):** Automatic detection when account hits limit.
+- **🌱 1-Click Smart Handoff (Tách Tab Mới):**
+  - Resolves token bloat when sessions reach $>25$ turns ($>100\text{k}$ tokens).
+  - Automatically spawns a fresh tab in the **exact same workspace** with ~3k tokens, saving **$>85\%$ quota** while continuing your codebase tasks.
+- **⚡ Smart Resume:** Sends concise, non-redundant continuation prompts to unblock stuck sessions.
 
-[Download the latest release](https://github.com/Lampese/codex-switcher/releases/latest)
+### 3. 📊 Total Pooled Quota & Token Analytics
+- **Pooled Quota Capacity:** Aggregates remaining quota percentages across all accounts (e.g. 5 accounts = **473% / 500%**).
+- **Multi-Window Token Breakdown:** Inspect Input, Output, Reasoning, and Cached Tokens across **1h, 24h, 3d, 7d, and 30d** windows.
+- **Cache Hit Monitoring:** Real-time cache hit efficiency tracking (~96% hit rate).
 
-Choose the file for your platform:
+### 4. 📱 Multi-Channel Remote Access & Telegram Bot
+- **Tailscale Remote Dashboard:** Access the Web Dashboard from iOS / Android over private VPN (`http://<tailscale-ip>:3210/`).
+- **Two-Way Telegram Bot:**
+  - `/usage` or `/tokens` – Live quota and token consumption report.
+  - `/resume_paseo` – 1-Click auto-switch account and unblock all throttled Paseo tabs.
+  - Interactive Inline Keyboards for instant account switching and status checks.
+- **Instant Push Alerts:** Real-time notifications via **Telegram** and **ntfy.sh**.
 
-- **macOS Apple Silicon:** `Codex.Switcher_*_aarch64.dmg`
-- **macOS Intel:** `Codex.Switcher_*_x64.dmg`
-- **Windows:** `Codex.Switcher_*_x64-setup.exe` or `Codex.Switcher_*_x64_en-US.msi`
-- **Linux Debian/Ubuntu:** `Codex.Switcher_*_amd64.deb`
-- **Linux AppImage:** `Codex.Switcher_*_amd64.AppImage`
-- **Linux RPM:** `Codex.Switcher-*-1.x86_64.rpm`
+### 5. 🔒 Privacy & Visual Polish
+- **1-Click Sensitive Data Masking:** Blur account emails and names across the dashboard and widgets with hover-to-reveal.
+- **Complete Dark Mode:** Polished, high-contrast dark theme optimized for OLED and late-night coding.
 
-> **macOS:** current release builds are not Apple-notarized. If macOS says the
-> app is damaged, move it to `/Applications` and remove the quarantine flag:
->
-> ```bash
-> sudo xattr -dr com.apple.quarantine "/Applications/Codex Switcher.app"
-> open "/Applications/Codex Switcher.app"
-> ```
+---
 
-### Auto Updates
+## 🚀 Quick Start
 
-Codex Switcher checks the latest GitHub release on startup. When a newer signed
-update package is available, the app shows an update prompt and can install it
-from inside the app.
+### Prerequisites
+- **Node.js:** v18 or newer (`node -v`)
+- **Package Manager:** `pnpm` (recommended) or `npm`
+- **Optional (for Desktop App build):** Rust & Cargo toolchain
 
-### Build from Source
-
-#### Prerequisites
-
-- [Node.js](https://nodejs.org/) (v18+)
-- [pnpm](https://pnpm.io/)
-- [Rust](https://rustup.rs/)
+### Installation & Run
 
 ```bash
-# Clone the repository
-git clone https://github.com/Lampese/codex-switcher.git
+# 1. Clone the repository
+git clone https://github.com/thinhbg59/codex-switcher.git
 cd codex-switcher
 
-# Install dependencies
+# 2. Install dependencies
 pnpm install
 
-# Run in development mode
-pnpm tauri dev
-
-# Build for production
-pnpm tauri build
-```
-
-> **Windows:** the `pnpm tauri` script runs through a POSIX shell wrapper
-> (`sh ./scripts/tauri.sh`) and will not work in PowerShell/CMD. Use the
-> `tauri:win` script instead: `pnpm tauri:win dev` and `pnpm tauri:win build`.
-
-The built application will be in `src-tauri/target/release/bundle/`.
-
-### Run the Dashboard in a Browser
-
-You can also serve the built dashboard over HTTP instead of opening the Tauri shell.
-
-```bash
-# Build the frontend and start the web server on 0.0.0.0:3210
+# 3. Build & start Web Dashboard (Port 3210)
 pnpm lan
 ```
 
-Optional environment variables:
+Open your browser at **`http://localhost:3210/`** (or `http://localhost:3210/#/paseo` for the Tab Manager).
 
-- `CODEX_SWITCHER_WEB_HOST` to override the bind host
-- `CODEX_SWITCHER_WEB_PORT` to override the port
+---
 
-The browser dashboard serves the same UI and backend actions through `/api/invoke/*`, which makes it usable over LAN, Tailscale, or a remote host tunnel when you expose the chosen port safely.
+## 🪟 Windows 1-Click Automation
 
-## Usage and Reset Credits
+For Windows users, dedicated 1-click batch scripts are included out-of-the-box:
 
-Codex Switcher shows two kinds of account usage information:
+| Script | Purpose |
+|---|---|
+| **`build-windows.bat`** | Automatically checks Node.js, installs dependencies, builds the frontend, and deploys runtime files. |
+| **`run-windows.bat`** | Starts the Web Dashboard and opens `http://localhost:3210/` in your default browser. |
+| **`scripts\install-windows-service.bat`** | **1-Click Silent Auto-Start:** Configures silent background startup on Windows login without any CMD popup window. |
+| **`scripts\uninstall-windows-service.bat`** | Removes the background startup task and terminates background processes. |
 
-- **Rate limits** – the account card shows the current 5-hour and weekly limit
-  windows, remaining percentage, reset timing, credit balance, and subscription
-  expiry when available.
-- **Usage Stats** – ChatGPT OAuth accounts can expand the **Usage
-  Stats** panel to view stats such as lifetime tokens,
-  today, last 7 days, last 30 days, streaks, longest task, token activity,
-  reasoning/activity insights, and most-used integrations. The active account
-  opens this panel by default; other accounts keep it collapsed until needed.
-- **Manual reset credits** – OAuth accounts with available reset credits show a
-  compact badge next to the plan badge. It includes the available count and the
-  closest expiry date, hides zero-count results, and turns amber within 10 days
-  or red within 3 days of expiry.
+---
 
-The tray popup also includes compact active-account stats for today and
-the last 7 days, while keeping the normal rate-limit refresh flow separate.
+## 🍎 macOS LaunchAgent Service
 
-## Safe Account Switching
-
-ChatGPT can replace an OAuth refresh token after using it. Once replaced, the
-older token may no longer be accepted. Before Codex Switcher writes another
-account to `~/.codex/auth.json`, it now saves the latest tokens from the account
-that is currently active. Switching back therefore restores the current session
-instead of an older snapshot.
-
-Token refreshes and account switches are serialized so a background refresh
-cannot finish late and overwrite the account you just selected. Codex Switcher
-also avoids refreshing the active account while Codex or ChatGPT is running;
-close the running app before switching accounts.
-
-If an older Codex Switcher version already saved an invalid refresh token, sign
-in to that account again or remove and re-add it once. An invalidated token
-cannot be recovered locally.
-
-## macOS Dock and Menu Bar Mode
-
-On macOS, Codex Switcher can either stay visible in the Dock or live only in the
-menu bar. The first time you close the main window, the app asks which behavior
-you want and lets you choose whether to show that prompt again.
-
-You can change the same setting later from the tray popup or from the native
-tray menu under **Dock Icon**. If you choose **Menu Bar Only**, the app keeps a
-visible tray item so you can always reopen the main window or switch back to
-Dock mode.
-
-## Warm-Up
-
-A warm-up sends one minimal request to an account so its current usage window
-has activity before you need it.
-
-- **Manual** – warm up a single or all accounts, from the main window or tray menu.
-- **Automatic** – when enabled (per account or for all), the app tracks the
-  5-hour window when available and warms it after each reset, as long as the
-  weekly limit isn't exhausted. If only the weekly window is available, it
-  warms once after the weekly reset and automatically returns to the 5-hour
-  schedule if that window reappears.
-- **Timed** – pick specific times of day (e.g. `08:00`, `13:00`, `18:00`) from
-  the **Timed** control in the main window. At each time the app warms all
-  accounts (skipping any whose weekly limit is exhausted), so you control when
-  your 5-hour windows start instead of letting them drift.
-
-Timed warm-up checks the schedule every 30 seconds, runs each configured minute
-only once per day, and skips missed times if the machine was asleep instead of
-warming accounts late.
-
-On macOS you can keep the machine awake with the built-in `caffeinate` command,
-which stops automatically when the app quits:
+To run Codex Switcher as a persistent, silent background service on macOS:
 
 ```bash
-caffeinate -i -w "$(pgrep -x 'Codex Switcher')"
+# 1. Build and copy runtime files
+pnpm build
+mkdir -p ~/.codex-switcher-web
+cp -R dist ~/.codex-switcher-web/
+cp scripts/web-server.mjs ~/.codex-switcher-web/
+cp scripts/start-service.sh ~/.codex-switcher-web/
+chmod +x ~/.codex-switcher-web/start-service.sh
+
+# 2. Create LaunchAgent plist (~/Library/LaunchAgents/com.codex.switcher.web.plist)
+# 3. Load service
+launchctl load ~/Library/LaunchAgents/com.codex.switcher.web.plist
 ```
 
-## Disclaimer
+---
 
-This tool is designed **exclusively for individuals who personally own multiple OpenAI/ChatGPT accounts**. It is intended to help users manage their own accounts more conveniently.
+## 🤖 Telegram Bot Commands Reference
 
-**This tool is NOT intended for:**
+| Command | Action |
+|---|---|
+| `/start` or `/help` | Displays interactive control menu and active account status. |
+| `/usage` or `/tokens` | Reports token breakdown (1h, 24h, 3d, 7d, 30d), cache rate, and pooled quota. |
+| `/resume_paseo` or `/tieptuc` | Auto-rotates to the highest-quota account and sends continuation prompt to all tabs. |
+| `/tabs` | Lists all active Paseo projects, workspaces, turn counts, and token levels. |
+| `/list` | Displays all configured accounts with remaining quota badges. |
 
-- Sharing accounts between multiple users
-- Circumventing OpenAI's terms of service
-- Any form of account pooling or credential sharing
+---
 
-By using this software, you agree that you are the rightful owner of all accounts you add to the application. The authors are not responsible for any misuse or violations of OpenAI's terms of service.
+## 📚 Complete Documentation
 
-## Versioning
+For comprehensive step-by-step guides in Vietnamese (including Tailscale remote setup, Telegram BotFather configuration, and troubleshooting), please see:
 
-Use the version bump helper to keep app versions in sync across Tauri, Cargo, and the frontend.
+👉 **[DOCS.md — Hướng Dẫn Sử Dụng & Vận Hành Toàn Diện](DOCS.md)**
 
-```bash
-# Exact version
-pnpm version:bump 0.2.1
+---
 
-# Semver bumps
-pnpm version:patch
-pnpm version:minor
-pnpm version:major
+## ⚠️ Disclaimer
 
-# Prepare a release commit and tag
-# This prompts for a short release note and runs the version bump first.
-pnpm release patch
+This tool is designed **exclusively for individuals who personally own multiple OpenAI / ChatGPT accounts** to manage their own workflows conveniently. It is not intended for account sharing, credential reselling, or circumventing OpenAI Terms of Service.
 
-# Prepare and push a release
-# The tag stores the release note for the in-app update prompt.
-pnpm release patch -- --push
+---
 
-# For non-interactive use, pass the note explicitly.
-pnpm release patch -- --push --note "Fixed account switching issues"
-```
+## 📄 License
+
+MIT License. Developed with ❤️ for advanced AI coding workflows.
