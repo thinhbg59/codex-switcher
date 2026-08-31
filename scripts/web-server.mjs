@@ -1266,26 +1266,20 @@ function formatTokenCount(num) {
 // ==================== AUTO-SWITCH & LOW QUOTA MONITOR ====================
 
 let lastAlerts = {};
-let lastAllExhaustedAlert = { time: 0, resetEpoch: 0 };
-let lastLowPoolAlert = { time: 0, rate: 100 };
+let lastAllExhaustedAlertTime = 0;
+let lastLowPoolAlertTime = 0;
 
 async function notifyAllAccountsExhausted(overview, config) {
-  const earliest = overview.earliestReset;
   const now = Date.now();
-  const cooldownMs = (config.cooldownMinutes || 30) * 60 * 1000;
+  const cooldownMs = Math.max(30 * 60 * 1000, (config.cooldownMinutes || 60) * 60 * 1000);
 
-  // Don't alert if already alerted recently for the same reset epoch
-  if (lastAllExhaustedAlert.time && now - lastAllExhaustedAlert.time < cooldownMs) {
-    if (earliest && earliest.resets_at === lastAllExhaustedAlert.resetEpoch) {
-      return;
-    }
+  // STRICT: Do not send more than once per cooldown window (30-60 mins)
+  if (lastAllExhaustedAlertTime && now - lastAllExhaustedAlertTime < cooldownMs) {
+    return;
   }
+  lastAllExhaustedAlertTime = now;
 
-  lastAllExhaustedAlert = {
-    time: now,
-    resetEpoch: earliest ? earliest.resets_at : 0,
-  };
-
+  const earliest = overview.earliestReset;
   const totalAcc = overview.totalAccounts;
   const earliestText = earliest
     ? `👤 *Tài khoản:* \`${earliest.account.name}\`\n⏰ *Thời gian reset:* *${earliest.timeFormatted}* (sau *${earliest.durationText}*)`
@@ -1321,16 +1315,16 @@ async function notifyAllAccountsExhausted(overview, config) {
 }
 
 async function notifyLowPoolQuota(overview, config) {
-  const earliest = overview.earliestReset;
   const now = Date.now();
-  const cooldownMs = (config.cooldownMinutes || 45) * 60 * 1000;
+  const cooldownMs = Math.max(45 * 60 * 1000, (config.cooldownMinutes || 60) * 60 * 1000);
 
-  if (lastLowPoolAlert.time && now - lastLowPoolAlert.time < cooldownMs && overview.poolRemainingRate >= lastLowPoolAlert.rate - 2) {
+  // STRICT: Do not send more than once per cooldown window (45-60 mins)
+  if (lastLowPoolAlertTime && now - lastLowPoolAlertTime < cooldownMs) {
     return;
   }
+  lastLowPoolAlertTime = now;
 
-  lastLowPoolAlert = { time: now, rate: overview.poolRemainingRate };
-
+  const earliest = overview.earliestReset;
   const totalAcc = overview.totalAccounts;
   const earliestText = earliest
     ? `⏳ *Tài khoản reset gần nhất:* \`${earliest.account.name}\` lúc *${earliest.timeFormatted}* (sau *${earliest.durationText}*)`
