@@ -243,7 +243,7 @@ export function PaseoTabsManager({
   return (
     <div className="space-y-6">
       {/* Route Header / Breadcrumb Card */}
-      <div className="rounded-2xl border border-gray-200 dark:border-gray-800 bg-white dark:bg-gray-900 shadow-sm p-5 transition-colors">
+      <div className="rounded-2xl border border-gray-200 dark:border-gray-700 bg-white dark:bg-gray-900 shadow-sm p-5 transition-colors">
         <div className="flex flex-wrap items-center justify-between gap-4">
           <div className="flex items-center gap-3.5">
             <div className="w-11 h-11 rounded-2xl bg-gradient-to-br from-emerald-500 via-teal-600 to-cyan-600 flex items-center justify-center text-white shadow-md">
@@ -255,24 +255,24 @@ export function PaseoTabsManager({
                   Quản Lý Projects, Workspaces & Tabs Paseo
                 </h1>
                 {totalRunningCount > 0 && (
-                  <span className="px-2.5 py-0.5 text-xs font-bold rounded-full bg-emerald-100 text-emerald-800 dark:bg-emerald-950/60 dark:text-emerald-300 border border-emerald-300 dark:border-emerald-700 flex items-center gap-1">
+                  <span className="px-2.5 py-0.5 text-xs font-bold rounded-full bg-emerald-100 text-emerald-800 dark:bg-emerald-950/80 dark:text-emerald-300 border border-emerald-300 dark:border-emerald-700 flex items-center gap-1">
                     <span className="w-2 h-2 rounded-full bg-emerald-500 animate-ping"></span>
                     <span>{totalRunningCount} tab đang chạy</span>
                   </span>
                 )}
                 {totalBloatedCount > 0 && (
-                  <span className="px-2.5 py-0.5 text-xs font-bold rounded-full bg-amber-100 text-amber-800 dark:bg-amber-950/60 dark:text-amber-300 border border-amber-200 dark:border-amber-800">
+                  <span className="px-2.5 py-0.5 text-xs font-bold rounded-full bg-amber-100 text-amber-800 dark:bg-amber-950/80 dark:text-amber-300 border border-amber-200 dark:border-amber-700">
                     {totalBloatedCount} tab quá turns
                   </span>
                 )}
                 {totalErroredCount > 0 && (
-                  <span className="px-2.5 py-0.5 text-xs font-bold rounded-full bg-red-100 text-red-800 dark:bg-red-950/60 dark:text-red-300 border border-red-200 dark:border-red-800 animate-pulse">
+                  <span className="px-2.5 py-0.5 text-xs font-bold rounded-full bg-red-100 text-red-800 dark:bg-red-950/80 dark:text-red-300 border border-red-200 dark:border-red-700 animate-pulse">
                     {totalErroredCount} tab lỗi Quota
                   </span>
                 )}
               </div>
               <p className="text-xs text-gray-500 dark:text-gray-400 mt-0.5">
-                Theo dõi trạng thái thời gian thực (<strong className="text-emerald-600 dark:text-emerald-400">Đang chạy</strong>, <strong className="text-gray-600 dark:text-gray-300">Đã dừng</strong>, <strong className="text-red-500">Lỗi Quota</strong>), số turns và tách tab tinh gọn.
+                Theo dõi trạng thái thời gian thực (<strong className="text-emerald-600 dark:text-emerald-400">Đang chạy</strong>, <strong className="text-gray-700 dark:text-gray-300">Đã dừng</strong>, <strong className="text-red-600 dark:text-red-400">Lỗi Quota</strong>), số turns và tách tab tinh gọn.
               </p>
             </div>
           </div>
@@ -281,7 +281,7 @@ export function PaseoTabsManager({
             {onNavigateHome && (
               <button
                 onClick={onNavigateHome}
-                className="px-3.5 py-2 text-xs font-semibold rounded-xl border border-gray-200 dark:border-gray-700 bg-white dark:bg-gray-800 text-gray-700 dark:text-gray-200 hover:bg-gray-50 dark:hover:bg-gray-700 transition-all flex items-center gap-1.5 cursor-pointer shadow-xs"
+                className="px-3.5 py-2 text-xs font-semibold rounded-xl border border-gray-300 dark:border-gray-700 bg-white dark:bg-gray-800 text-gray-800 dark:text-gray-200 hover:bg-gray-100 dark:hover:bg-gray-700 transition-all flex items-center gap-1.5 cursor-pointer shadow-xs"
               >
                 <span>⬅️</span>
                 <span>Dashboard Tài Khoản</span>
@@ -312,7 +312,7 @@ export function PaseoTabsManager({
         </div>
 
         {/* Filter Toolbar with Statuses */}
-        <div className="mt-4 pt-4 border-t border-gray-100 dark:border-gray-800 flex flex-wrap items-center justify-between gap-3">
+        <div className="mt-4 pt-4 border-t border-gray-200 dark:border-gray-700 flex flex-wrap items-center justify-between gap-3">
           {/* Status Filter Pills */}
           <div className="flex flex-wrap items-center bg-gray-100 dark:bg-gray-800 p-1 rounded-xl border border-gray-200 dark:border-gray-700 text-xs font-medium gap-1">
             <button
@@ -320,7 +320,7 @@ export function PaseoTabsManager({
               className={`px-3 py-1.5 rounded-lg transition-all cursor-pointer ${
                 filterMode === "all"
                   ? "bg-white dark:bg-gray-700 text-gray-900 dark:text-white font-bold shadow-xs"
-                  : "text-gray-600 dark:text-gray-400 hover:text-gray-900 dark:hover:text-white"
+                  : "text-gray-600 dark:text-gray-400 hover:text-gray-900 dark:hover:text-gray-100"
               }`}
             >
               Tất cả ({tabs.length})
@@ -343,7 +343,7 @@ export function PaseoTabsManager({
               className={`px-3 py-1.5 rounded-lg transition-all flex items-center gap-1.5 cursor-pointer ${
                 filterMode === "idle"
                   ? "bg-gray-600 text-white font-bold shadow-xs"
-                  : "text-gray-600 dark:text-gray-400 hover:text-gray-900 dark:hover:text-white"
+                  : "text-gray-600 dark:text-gray-400 hover:text-gray-900 dark:hover:text-gray-100"
               }`}
             >
               <span>⚪</span>
@@ -415,7 +415,7 @@ export function PaseoTabsManager({
 
       {/* Hierarchical Tree: Project => Workspace => Tabs */}
       {projectTree.length === 0 ? (
-        <div className="p-12 text-center text-sm text-gray-400 dark:text-gray-500 bg-white dark:bg-gray-900 rounded-2xl border border-dashed border-gray-200 dark:border-gray-800">
+        <div className="p-12 text-center text-sm text-gray-400 dark:text-gray-500 bg-white dark:bg-gray-900 rounded-2xl border border-dashed border-gray-200 dark:border-gray-700">
           <div className="text-3xl mb-2">🔍</div>
           <div>Không tìm thấy tab nào phù hợp với trạng thái hoặc bộ lọc hiện tại.</div>
         </div>
@@ -427,12 +427,12 @@ export function PaseoTabsManager({
             return (
               <div
                 key={project.projectId}
-                className="rounded-2xl border border-gray-200 dark:border-gray-800 bg-white dark:bg-gray-900 shadow-sm overflow-hidden transition-colors"
+                className="rounded-2xl border border-gray-200 dark:border-gray-700 bg-white dark:bg-gray-900 shadow-sm overflow-hidden transition-colors"
               >
                 {/* Level 1: Project Header */}
                 <div
                   onClick={() => toggleProject(project.projectId)}
-                  className="px-5 py-3.5 flex items-center justify-between cursor-pointer bg-gray-50 dark:bg-gray-800/80 hover:bg-gray-100/80 dark:hover:bg-gray-800 transition-colors border-b border-gray-200 dark:border-gray-800"
+                  className="px-5 py-3.5 flex items-center justify-between cursor-pointer bg-gray-50 dark:bg-gray-800 hover:bg-gray-100 dark:hover:bg-gray-700 transition-colors border-b border-gray-200 dark:border-gray-700"
                 >
                   <div className="flex items-center gap-3 min-w-0">
                     <span className="text-xl">📦</span>
@@ -457,7 +457,7 @@ export function PaseoTabsManager({
 
                   <div className="flex items-center gap-2 shrink-0">
                     {project.bloatedCount > 0 && (
-                      <span className="px-2.5 py-1 rounded-lg text-xs font-bold bg-amber-100 text-amber-800 dark:bg-amber-950/60 dark:text-amber-300 border border-amber-200 dark:border-amber-800">
+                      <span className="px-2.5 py-1 rounded-lg text-xs font-bold bg-amber-100 text-amber-800 dark:bg-amber-950/80 dark:text-amber-300 border border-amber-200 dark:border-amber-700">
                         ⚠️ {project.bloatedCount} Quá turns
                       </span>
                     )}
@@ -476,19 +476,19 @@ export function PaseoTabsManager({
 
                 {/* Level 2: Workspaces in Project */}
                 {!isPrjCollapsed && (
-                  <div className="p-4 space-y-4 bg-gray-50/40 dark:bg-gray-950/40">
+                  <div className="p-4 space-y-4 bg-gray-50/50 dark:bg-gray-950/60">
                     {project.workspaces.map((workspace) => {
                       const isWksCollapsed = collapsedWorkspaces[workspace.workspaceId];
 
                       return (
                         <div
                           key={workspace.workspaceId}
-                          className="rounded-xl border border-gray-200 dark:border-gray-800 bg-white dark:bg-gray-850 overflow-hidden shadow-xs"
+                          className="rounded-xl border border-gray-200 dark:border-gray-700 bg-white dark:bg-gray-900 overflow-hidden shadow-xs"
                         >
                           {/* Workspace Header */}
                           <div
                             onClick={() => toggleWorkspace(workspace.workspaceId)}
-                            className="px-4 py-3 flex items-center justify-between cursor-pointer bg-gray-50/80 dark:bg-gray-800/60 hover:bg-gray-100/80 dark:hover:bg-gray-800 transition-colors border-b border-gray-200 dark:border-gray-700/80"
+                            className="px-4 py-3 flex items-center justify-between cursor-pointer bg-gray-50 dark:bg-gray-800 hover:bg-gray-100 dark:hover:bg-gray-700 transition-colors border-b border-gray-200 dark:border-gray-700"
                           >
                             <div className="flex items-center gap-2.5 min-w-0">
                               <span className="text-base">📂</span>
@@ -498,12 +498,12 @@ export function PaseoTabsManager({
                                     Workspace: {workspace.title}
                                   </span>
                                   {workspace.branch && (
-                                    <span className="px-2 py-0.5 rounded-md text-[10px] font-mono bg-blue-50 text-blue-700 dark:bg-blue-950/60 dark:text-blue-300 border border-blue-200 dark:border-blue-800">
+                                    <span className="px-2 py-0.5 rounded-md text-[10px] font-mono bg-blue-50 text-blue-700 dark:bg-blue-950/80 dark:text-blue-300 border border-blue-200 dark:border-blue-700">
                                       🌿 {workspace.branch}
                                     </span>
                                   )}
                                   {workspace.runningCount > 0 && (
-                                    <span className="px-1.5 py-0.5 rounded text-[10px] font-bold bg-emerald-100 text-emerald-800 dark:bg-emerald-950/60 dark:text-emerald-300 border border-emerald-200 dark:border-emerald-800 animate-pulse">
+                                    <span className="px-1.5 py-0.5 rounded text-[10px] font-bold bg-emerald-100 text-emerald-800 dark:bg-emerald-950/80 dark:text-emerald-300 border border-emerald-200 dark:border-emerald-700 animate-pulse">
                                       {workspace.runningCount} đang chạy
                                     </span>
                                   )}
@@ -533,15 +533,15 @@ export function PaseoTabsManager({
 
                           {/* Level 3: Tabs in Workspace */}
                           {!isWksCollapsed && (
-                            <div className="p-3.5 grid grid-cols-1 md:grid-cols-2 gap-3 bg-white dark:bg-gray-900/60">
+                            <div className="p-3.5 grid grid-cols-1 md:grid-cols-2 gap-3 bg-white dark:bg-gray-900">
                               {workspace.tabs.map((tab) => {
                                 const isWorking = actionLoadingId === tab.id;
                                 const bloatBorder =
                                   tab.bloatLevel === "danger"
-                                    ? "border-red-300 dark:border-red-800/80 bg-red-50/40 dark:bg-red-950/20"
+                                    ? "border-red-300 dark:border-red-700 bg-red-50/40 dark:bg-red-950/30"
                                     : tab.bloatLevel === "warning"
-                                    ? "border-amber-300 dark:border-amber-800/80 bg-amber-50/40 dark:bg-amber-950/20"
-                                    : "border-gray-200 dark:border-gray-700/80 bg-gray-50/40 dark:bg-gray-800/50";
+                                    ? "border-amber-300 dark:border-amber-700 bg-amber-50/40 dark:bg-amber-950/30"
+                                    : "border-gray-200 dark:border-gray-700 bg-gray-50/50 dark:bg-gray-800/80";
 
                                 return (
                                   <div
@@ -617,7 +617,7 @@ export function PaseoTabsManager({
                                     </div>
 
                                     {/* Tab Actions */}
-                                    <div className="flex items-center justify-between gap-2 pt-2 border-t border-gray-200 dark:border-gray-700/60 text-xs">
+                                    <div className="flex items-center justify-between gap-2 pt-2 border-t border-gray-200 dark:border-gray-700 text-xs">
                                       <span className="text-[11px] text-gray-600 dark:text-gray-400 truncate">
                                         {tab.recommendedAction}
                                       </span>
@@ -639,7 +639,7 @@ export function PaseoTabsManager({
                                           onClick={() => void handleSmartResume(tab)}
                                           disabled={isWorking}
                                           title="Gửi prompt định hướng súc tích"
-                                          className="px-2.5 py-1 text-xs font-semibold rounded-lg bg-white dark:bg-gray-800 hover:bg-emerald-50 dark:hover:bg-gray-700 text-gray-800 dark:text-gray-200 border border-gray-300 dark:border-gray-600 transition-colors disabled:opacity-50 flex items-center gap-1 cursor-pointer shadow-2xs"
+                                          className="px-2.5 py-1 text-xs font-semibold rounded-lg bg-white dark:bg-gray-800 hover:bg-gray-100 dark:hover:bg-gray-700 text-gray-800 dark:text-gray-200 border border-gray-300 dark:border-gray-600 transition-colors disabled:opacity-50 flex items-center gap-1 cursor-pointer shadow-2xs"
                                         >
                                           <span>⚡</span>
                                           <span>Resume</span>
