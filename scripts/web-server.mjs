@@ -279,11 +279,18 @@ function generateSmartResumePrompt(agentData = {}, mode = "smart", customPrompt 
   return "tiếp tục";
 }
 
-function findCodexSessionMetrics(sessionId) {
-  if (!sessionId || !fs.existsSync(SESSIONS_DIR)) return { inputTokens: 0, outputTokens: 0, cachedTokens: 0, reasoningTokens: 0, totalTokens: 0, turns: 0 };
+const sessionMetricsCache = new Map();
+const sessionFileIndex = new Map();
+let lastSessionIndexTime = 0;
+
+function refreshSessionIndexIfNeeded() {
+  const now = Date.now();
+  if (now - lastSessionIndexTime < 30000 && sessionFileIndex.size > 0) return;
+  lastSessionIndexTime = now;
+
+  if (!fs.existsSync(SESSIONS_DIR)) return;
   try {
     const today = new Date();
-    // Search last 14 days
     for (let i = 0; i < 14; i++) {
       const d = new Date(today.getTime() - i * 86400000);
       const y = String(d.getFullYear());
@@ -293,39 +300,90 @@ function findCodexSessionMetrics(sessionId) {
       if (!fs.existsSync(dayDir)) continue;
 
       const files = fs.readdirSync(dayDir);
-      const matchFile = files.find((f) => f.includes(sessionId) && f.endsWith(".jsonl"));
-      if (matchFile) {
-        const fullPath = path.join(dayDir, matchFile);
-        const content = fs.readFileSync(fullPath, "utf8");
-        const lines = content.split("\n");
-        let lastUsage = null;
-        let turns = 0;
-        for (const line of lines) {
-          if (!line.includes('"token_count"')) continue;
-          try {
-            const data = JSON.parse(line);
-            if (data.type === "event_msg" && data.payload?.type === "token_count") {
-              const u = data.payload.info?.last_token_usage;
-              if (u) {
-                lastUsage = u;
-                turns++;
-              }
-            }
-          } catch {}
-        }
-        if (lastUsage) {
-          return {
-            inputTokens: lastUsage.input_tokens || 0,
-            outputTokens: lastUsage.output_tokens || 0,
-            cachedTokens: lastUsage.cached_input_tokens || 0,
-            reasoningTokens: lastUsage.reasoning_output_tokens || 0,
-            totalTokens: lastUsage.total_tokens || 0,
-            turns,
-          };
+      for (const f of files) {
+        if (f.endsWith(".jsonl")) {
+          const match = f.match(/([0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12})/i);
+          if (match) {
+            sessionFileIndex.set(match[1], path.join(dayDir, f));
+          }
         }
       }
     }
   } catch {}
+}
+
+function findCodexSessionMetrics(sessionId) {
+  if (!sessionId) {
+    return { inputTokens: 0, outputTokens: 0, cachedTokens: 0, reasoningTokens: 0, totalTokens: 0, turns: 0 };
+  }
+
+  const now = Date.now();
+  const cached = sessionMetricsCache.get(sessionId);
+  if (cached && (now - cached.cachedAt < 10000)) {
+    return cached.metrics;
+  }
+
+  refreshSessionIndexIfNeeded();
+
+  const targetPath = sessionFileIndex.get(sessionId);
+  if (!targetPath || !fs.existsSync(targetPath)) {
+    return { inputTokens: 0, outputTokens: 0, cachedTokens: 0, reasoningTokens: 0, totalTokens: 0, turns: 0 };
+  }
+
+  try {
+    const stats = fs.statSync(targetPath);
+    if (cached && cached.mtime === stats.mtimeMs) {
+      cached.cachedAt = now;
+      return cached.metrics;
+    }
+
+    const size = stats.size;
+    const readSize = Math.min(size, 96 * 1024);
+    const buffer = Buffer.alloc(readSize);
+    const fd = fs.openSync(targetPath, "r");
+    fs.readSync(fd, buffer, 0, readSize, size - readSize);
+    fs.closeSync(fd);
+
+    const text = buffer.toString("utf8");
+    const lines = text.split("\n");
+    let lastUsage = null;
+    let turnCount = 0;
+
+    for (let i = lines.length - 1; i >= 0; i--) {
+      const line = lines[i];
+      if (line.includes('"token_count"')) {
+        try {
+          const data = JSON.parse(line);
+          if (data.type === "event_msg" && data.payload?.type === "token_count") {
+            const u = data.payload.info?.last_token_usage;
+            if (u && !lastUsage) {
+              lastUsage = u;
+            }
+            turnCount++;
+          }
+        } catch {}
+      }
+    }
+
+    const turns = Math.max(turnCount, Math.round(size / (15 * 1024)) || 1);
+
+    const metrics = lastUsage
+      ? {
+          inputTokens: lastUsage.input_tokens || 0,
+          outputTokens: lastUsage.output_tokens || 0,
+          cachedTokens: lastUsage.cached_input_tokens || 0,
+          reasoningTokens: lastUsage.reasoning_output_tokens || 0,
+          totalTokens: lastUsage.total_tokens || 0,
+          turns,
+        }
+      : { inputTokens: 0, outputTokens: 0, cachedTokens: 0, reasoningTokens: 0, totalTokens: 0, turns: 0 };
+
+    sessionMetricsCache.set(sessionId, { cachedAt: now, mtime: stats.mtimeMs, metrics });
+    return metrics;
+  } catch (e) {
+    console.error("[SessionMetrics] Error reading session tail:", sessionId, e.message);
+  }
+
   return { inputTokens: 0, outputTokens: 0, cachedTokens: 0, reasoningTokens: 0, totalTokens: 0, turns: 0 };
 }
 
