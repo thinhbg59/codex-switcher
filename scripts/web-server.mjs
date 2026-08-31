@@ -418,6 +418,36 @@ function getPaseoTabsAnalytics() {
           const projectName = prjMeta?.displayName || (data.cwd ? path.basename(data.cwd) : "Default Project");
           const workspaceTitle = wksMeta?.title || (data.cwd ? path.basename(data.cwd) : "Main Workspace");
 
+          let statusType = "idle";
+          let statusLabel = "Đã dừng (Idle)";
+          let statusColor = "gray";
+
+          if (hasQuotaError) {
+            statusType = "quota_error";
+            statusLabel = "Lỗi Hết Quota";
+            statusColor = "red";
+          } else if (err && err.trim()) {
+            statusType = "error";
+            statusLabel = "Lỗi";
+            statusColor = "red";
+          } else if (data.requiresAttention || data.lastStatus === "waiting_for_input") {
+            statusType = "waiting";
+            statusLabel = "Chờ phản hồi";
+            statusColor = "amber";
+          } else if (data.lastStatus === "running") {
+            statusType = "running";
+            statusLabel = "Đang chạy";
+            statusColor = "emerald";
+          } else if (data.lastStatus === "closed") {
+            statusType = "closed";
+            statusLabel = "Đã đóng";
+            statusColor = "gray";
+          } else {
+            statusType = "idle";
+            statusLabel = "Đã dừng (Idle)";
+            statusColor = "gray";
+          }
+
           tabs.push({
             id: data.id,
             title: data.title || "Cuộc trò chuyện Paseo",
@@ -432,6 +462,9 @@ function getPaseoTabsAnalytics() {
             updatedAt: data.updatedAt || new Date(stats.mtimeMs).toISOString(),
             mtime: stats.mtimeMs,
             lastStatus: data.lastStatus || "unknown",
+            statusType,
+            statusLabel,
+            statusColor,
             hasQuotaError,
             lastError: err,
             sessionId,
