@@ -255,9 +255,19 @@ launchctl load ~/Library/LaunchAgents/com.codex.switcher.web.plist
 
 ---
 
-### 9.2. Cấu hình chạy tự động trên Windows
+### 9.2. Cấu hình chạy tự động trên Windows (1-Click Auto-Start)
 
-#### Cách 1: Sử dụng PM2 (Khuyên dùng)
+#### Cách 1: Sử dụng Script 1-Click Tích Hợp Sẵn (Khuyên dùng)
+1. **Build & Cài đặt tự động:**
+   - Nhấp đúp chuột vào file `build-windows.bat` (hoặc chạy trong CMD).
+   - Nhấp đúp chuột vào file `scripts\install-windows-service.bat`.
+2. Hệ thống sẽ tự động tạo shortcut chạy ngầm (`start-service.vbs`) vào thư mục Startup của Windows và kích hoạt dịch vụ chạy ngầm ngay lập tức.
+3. Để gỡ bỏ tự khởi động, chỉ cần chạy file `scripts\uninstall-windows-service.bat`.
+
+#### Cách 2: Chạy trực tiếp
+- Nhấp đúp chuột vào file `run-windows.bat`. Script sẽ tự động khởi động server và mở ngay trình duyệt tại `http://localhost:3210`.
+
+#### Cách 3: Sử dụng PM2 (Dành cho Server/Dev)
 ```cmd
 # Cài đặt PM2
 npm install -g pm2 pm2-windows-startup
@@ -269,14 +279,6 @@ pm2 start scripts\web-server.mjs --name codex-switcher
 pm2 save
 pm2-startup install
 ```
-
-#### Cách 2: Thư mục Startup (Khởi chạy khi đăng nhập)
-1. Bấm `Win + R`, gõ `shell:startup` và Enter.
-2. Tạo file `start_codex_switcher.vbs`:
-   ```vbs
-   Set WshShell = CreateObject("WScript.Shell")
-   WshShell.Run "node C:\Users\<Username>\codex-switcher\scripts\web-server.mjs", 0, False
-   ```
 
 ---
 
