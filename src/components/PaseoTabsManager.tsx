@@ -312,28 +312,42 @@ export function PaseoTabsManager({
         </div>
 
         {/* Quota Optimization Guide Banner */}
-        <div className="mt-4 p-3.5 rounded-xl bg-gradient-to-r from-blue-50/70 via-indigo-50/50 to-teal-50/50 dark:from-blue-950/40 dark:via-indigo-950/30 dark:to-teal-950/30 border border-blue-200/80 dark:border-blue-900/50 flex flex-col md:flex-row md:items-center justify-between gap-3 text-xs">
+        <div className="mt-4 p-4 rounded-xl bg-gradient-to-r from-blue-50/80 via-indigo-50/60 to-teal-50/60 dark:from-blue-950/40 dark:via-indigo-950/30 dark:to-teal-950/30 border border-blue-200/80 dark:border-blue-900/50 space-y-3 text-xs">
+          {/* Row 1: Title & Explanation */}
           <div className="flex items-start gap-2.5">
             <span className="text-base shrink-0 mt-0.5">💡</span>
             <div>
-              <span className="font-bold text-gray-900 dark:text-gray-100 block sm:inline">
+              <span className="font-bold text-gray-900 dark:text-gray-100">
                 Khuyến Nghị Tối Ưu Quota:
               </span>
-              <span className="text-gray-600 dark:text-gray-300 sm:ml-1.5">
+              <span className="text-gray-600 dark:text-gray-300 ml-1.5">
                 Càng nhiều turns, mỗi câu chat càng nạp lại context lớn. Khuyên dùng:
               </span>
             </div>
           </div>
 
-          <div className="flex flex-wrap items-center gap-2 shrink-0">
-            <div className="px-2.5 py-1 rounded-lg bg-white/90 dark:bg-gray-800 border border-emerald-300 dark:border-emerald-700/80 text-emerald-800 dark:text-emerald-300 font-medium">
-              🟢 <strong>&lt; 15 turns</strong>: Chat bình thường
+          {/* Row 2: Recommendation List (Separate Row with Grid) */}
+          <div className="grid grid-cols-1 sm:grid-cols-3 gap-2.5 pt-0.5">
+            <div className="px-3 py-2 rounded-lg bg-white/90 dark:bg-gray-800 border border-emerald-300/90 dark:border-emerald-700/80 text-emerald-900 dark:text-emerald-300 font-medium flex items-center gap-2 shadow-2xs">
+              <span className="text-sm">🟢</span>
+              <div>
+                <strong>&lt; 15 turns</strong>: Chat bình thường
+              </div>
             </div>
-            <div className="px-2.5 py-1 rounded-lg bg-white/90 dark:bg-gray-800 border border-amber-300 dark:border-amber-700/80 text-amber-800 dark:text-amber-300 font-medium">
-              🟡 <strong>15 – 25 turns</strong>: Dùng ⚡ <strong>Smart Resume</strong>
+
+            <div className="px-3 py-2 rounded-lg bg-white/90 dark:bg-gray-800 border border-amber-300/90 dark:border-amber-700/80 text-amber-900 dark:text-amber-300 font-medium flex items-center gap-2 shadow-2xs">
+              <span className="text-sm">🟡</span>
+              <div>
+                <strong>15 – 25 turns</strong>: Dùng ⚡ <strong>Smart Resume</strong>
+              </div>
             </div>
-            <div className="px-2.5 py-1 rounded-lg bg-white/90 dark:bg-gray-800 border border-red-300 dark:border-red-700/80 text-red-800 dark:text-red-300 font-medium">
-              🔴 <strong>&gt; 25 turns</strong>: Bấm 🌱 <strong>Tách Tab Mới</strong> (Tiết kiệm &gt;85% Quota)
+
+            <div className="px-3 py-2 rounded-lg bg-white/90 dark:bg-gray-800 border border-red-300/90 dark:border-red-700/80 text-red-900 dark:text-red-300 font-medium flex items-center gap-2 shadow-2xs">
+              <span className="text-sm">🔴</span>
+              <div>
+                <strong>&gt; 25 turns</strong>: Bấm 🌱 <strong>Tách Tab Mới</strong>
+                <span className="text-[11px] block font-normal opacity-90">(Tiết kiệm &gt;85% Quota)</span>
+              </div>
             </div>
           </div>
         </div>
