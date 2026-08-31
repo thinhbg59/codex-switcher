@@ -220,7 +220,7 @@ export function PaseoTabsManager({
   return (
     <div className="space-y-6">
       {/* Route Header / Breadcrumb Card */}
-      <div className="rounded-2xl border border-gray-200/80 dark:border-gray-800/80 bg-white/70 dark:bg-gray-900/70 backdrop-blur-xl shadow-xs p-5">
+      <div className="rounded-2xl border border-gray-200 dark:border-gray-800 bg-white dark:bg-gray-900 shadow-sm p-5 transition-colors">
         <div className="flex flex-wrap items-center justify-between gap-4">
           <div className="flex items-center gap-3.5">
             <div className="w-11 h-11 rounded-2xl bg-gradient-to-br from-emerald-500 via-teal-600 to-cyan-600 flex items-center justify-center text-white shadow-md">
@@ -228,16 +228,16 @@ export function PaseoTabsManager({
             </div>
             <div>
               <div className="flex items-center gap-2">
-                <h1 className="text-lg font-bold text-gray-900 dark:text-white tracking-tight">
+                <h1 className="text-lg font-bold text-gray-900 dark:text-gray-100 tracking-tight">
                   Quản Lý Projects, Workspaces & Tabs Paseo
                 </h1>
                 {totalBloatedCount > 0 && (
-                  <span className="px-2.5 py-0.5 text-xs font-bold rounded-full bg-amber-100 text-amber-800 dark:bg-amber-900/50 dark:text-amber-300 border border-amber-200/50 dark:border-amber-800/50">
+                  <span className="px-2.5 py-0.5 text-xs font-bold rounded-full bg-amber-100 text-amber-800 dark:bg-amber-950/60 dark:text-amber-300 border border-amber-200 dark:border-amber-800">
                     {totalBloatedCount} tab quá turns
                   </span>
                 )}
                 {totalErroredCount > 0 && (
-                  <span className="px-2.5 py-0.5 text-xs font-bold rounded-full bg-red-100 text-red-800 dark:bg-red-900/50 dark:text-red-300 border border-red-200/50 dark:border-red-800/50 animate-pulse">
+                  <span className="px-2.5 py-0.5 text-xs font-bold rounded-full bg-red-100 text-red-800 dark:bg-red-950/60 dark:text-red-300 border border-red-200 dark:border-red-800 animate-pulse">
                     {totalErroredCount} tab lỗi Quota
                   </span>
                 )}
@@ -252,7 +252,7 @@ export function PaseoTabsManager({
             {onNavigateHome && (
               <button
                 onClick={onNavigateHome}
-                className="px-3.5 py-2 text-xs font-semibold rounded-xl border border-gray-200/80 dark:border-gray-700/80 bg-white dark:bg-gray-800 text-gray-700 dark:text-gray-300 hover:bg-gray-50 dark:hover:bg-gray-750 transition-all flex items-center gap-1.5 cursor-pointer"
+                className="px-3.5 py-2 text-xs font-semibold rounded-xl border border-gray-200 dark:border-gray-700 bg-white dark:bg-gray-800 text-gray-700 dark:text-gray-200 hover:bg-gray-50 dark:hover:bg-gray-700 transition-all flex items-center gap-1.5 cursor-pointer shadow-xs"
               >
                 <span>⬅️</span>
                 <span>Dashboard Tài Khoản</span>
@@ -262,7 +262,7 @@ export function PaseoTabsManager({
             <button
               onClick={() => void fetchTabs()}
               disabled={isLoading}
-              className="px-3.5 py-2 text-xs font-semibold rounded-xl border border-emerald-200/80 dark:border-emerald-800/60 bg-emerald-50/80 dark:bg-emerald-950/40 text-emerald-700 dark:text-emerald-300 hover:bg-emerald-100/80 transition-all disabled:opacity-50 flex items-center gap-1.5 cursor-pointer"
+              className="px-3.5 py-2 text-xs font-semibold rounded-xl border border-emerald-300 dark:border-emerald-700 bg-emerald-50 dark:bg-emerald-950/60 text-emerald-800 dark:text-emerald-300 hover:bg-emerald-100 dark:hover:bg-emerald-900/60 transition-all disabled:opacity-50 flex items-center gap-1.5 cursor-pointer shadow-xs"
             >
               <svg
                 className={`w-3.5 h-3.5 ${isLoading ? "animate-spin" : ""}`}
@@ -285,13 +285,13 @@ export function PaseoTabsManager({
         {/* Filter Toolbar */}
         <div className="mt-4 pt-4 border-t border-gray-100 dark:border-gray-800 flex flex-wrap items-center justify-between gap-3">
           {/* Quick Filter Pills */}
-          <div className="flex items-center bg-gray-100/80 dark:bg-gray-800/80 p-1 rounded-xl border border-gray-200/50 dark:border-gray-700/50 text-xs font-medium">
+          <div className="flex items-center bg-gray-100 dark:bg-gray-800 p-1 rounded-xl border border-gray-200 dark:border-gray-700 text-xs font-medium">
             <button
               onClick={() => setFilterMode("all")}
               className={`px-3 py-1.5 rounded-lg transition-all cursor-pointer ${
                 filterMode === "all"
-                  ? "bg-white dark:bg-gray-700 text-emerald-700 dark:text-emerald-300 font-semibold shadow-xs"
-                  : "text-gray-600 dark:text-gray-400 hover:text-gray-900"
+                  ? "bg-white dark:bg-gray-700 text-emerald-700 dark:text-emerald-300 font-bold shadow-xs"
+                  : "text-gray-600 dark:text-gray-400 hover:text-gray-900 dark:hover:text-white"
               }`}
             >
               Tất cả ({tabs.length})
@@ -300,8 +300,8 @@ export function PaseoTabsManager({
               onClick={() => setFilterMode("bloated")}
               className={`px-3 py-1.5 rounded-lg transition-all flex items-center gap-1.5 cursor-pointer ${
                 filterMode === "bloated"
-                  ? "bg-white dark:bg-gray-700 text-amber-700 dark:text-amber-300 font-semibold shadow-xs"
-                  : "text-gray-600 dark:text-gray-400 hover:text-gray-900"
+                  ? "bg-white dark:bg-gray-700 text-amber-700 dark:text-amber-300 font-bold shadow-xs"
+                  : "text-gray-600 dark:text-gray-400 hover:text-gray-900 dark:hover:text-white"
               }`}
             >
               <span>🔴</span>
@@ -312,8 +312,8 @@ export function PaseoTabsManager({
                 onClick={() => setFilterMode("errored")}
                 className={`px-3 py-1.5 rounded-lg transition-all flex items-center gap-1.5 cursor-pointer ${
                   filterMode === "errored"
-                    ? "bg-white dark:bg-gray-700 text-red-700 dark:text-red-300 font-semibold shadow-xs"
-                    : "text-gray-600 dark:text-gray-400 hover:text-gray-900"
+                    ? "bg-white dark:bg-gray-700 text-red-700 dark:text-red-300 font-bold shadow-xs"
+                    : "text-gray-600 dark:text-gray-400 hover:text-gray-900 dark:hover:text-white"
                 }`}
               >
                 <span>⚠️</span>
@@ -329,13 +329,13 @@ export function PaseoTabsManager({
               value={searchQuery}
               onChange={(e) => setSearchQuery(e.target.value)}
               placeholder="Tìm theo tên tab, workspace, project..."
-              className="w-full h-9 pl-9 pr-3 text-xs rounded-xl border border-gray-200 dark:border-gray-700 bg-white dark:bg-gray-800 text-gray-900 dark:text-white placeholder-gray-400 focus:outline-none focus:ring-2 focus:ring-emerald-500/50"
+              className="w-full h-9 pl-9 pr-3 text-xs rounded-xl border border-gray-300 dark:border-gray-700 bg-white dark:bg-gray-800 text-gray-900 dark:text-gray-100 placeholder-gray-400 dark:placeholder-gray-500 focus:outline-none focus:ring-2 focus:ring-emerald-500/50"
             />
-            <span className="absolute left-3 top-2.5 text-xs text-gray-400">🔍</span>
+            <span className="absolute left-3 top-2.5 text-xs text-gray-400 dark:text-gray-500">🔍</span>
             {searchQuery && (
               <button
                 onClick={() => setSearchQuery("")}
-                className="absolute right-2.5 top-2.5 text-xs text-gray-400 hover:text-gray-600 cursor-pointer"
+                className="absolute right-2.5 top-2.5 text-xs text-gray-400 hover:text-gray-600 dark:hover:text-gray-200 cursor-pointer"
               >
                 ✕
               </button>
@@ -346,7 +346,7 @@ export function PaseoTabsManager({
 
       {/* Hierarchical Tree: Project => Workspace => Tabs */}
       {projectTree.length === 0 ? (
-        <div className="p-12 text-center text-sm text-gray-400 dark:text-gray-500 bg-white/50 dark:bg-gray-900/50 rounded-2xl border border-dashed border-gray-200 dark:border-gray-800">
+        <div className="p-12 text-center text-sm text-gray-400 dark:text-gray-500 bg-white dark:bg-gray-900 rounded-2xl border border-dashed border-gray-200 dark:border-gray-800">
           <div className="text-3xl mb-2">🔍</div>
           <div>Không tìm thấy tab nào phù hợp với bộ lọc hiện tại.</div>
         </div>
@@ -358,21 +358,21 @@ export function PaseoTabsManager({
             return (
               <div
                 key={project.projectId}
-                className="rounded-2xl border border-gray-200/80 dark:border-gray-800/80 bg-white/80 dark:bg-gray-900/80 shadow-xs overflow-hidden"
+                className="rounded-2xl border border-gray-200 dark:border-gray-800 bg-white dark:bg-gray-900 shadow-sm overflow-hidden transition-colors"
               >
                 {/* Level 1: Project Header */}
                 <div
                   onClick={() => toggleProject(project.projectId)}
-                  className="px-5 py-3.5 flex items-center justify-between cursor-pointer bg-gradient-to-r from-gray-50 to-gray-100/50 dark:from-gray-800/80 dark:to-gray-800/40 hover:from-gray-100 hover:to-gray-150 dark:hover:from-gray-750 transition-all border-b border-gray-100 dark:border-gray-800"
+                  className="px-5 py-3.5 flex items-center justify-between cursor-pointer bg-gray-50 dark:bg-gray-800/80 hover:bg-gray-100/80 dark:hover:bg-gray-800 transition-colors border-b border-gray-200 dark:border-gray-800"
                 >
                   <div className="flex items-center gap-3 min-w-0">
                     <span className="text-xl">📦</span>
                     <div>
                       <div className="flex items-center gap-2">
-                        <span className="font-bold text-sm text-gray-900 dark:text-white">
+                        <span className="font-bold text-sm text-gray-900 dark:text-gray-100">
                           Project: {project.projectName}
                         </span>
-                        <span className="text-xs text-gray-400 font-mono">({project.rootPath})</span>
+                        <span className="text-xs text-gray-500 dark:text-gray-400 font-mono">({project.rootPath})</span>
                       </div>
                       <div className="text-[11px] text-gray-500 dark:text-gray-400">
                         {project.workspaces.length} Workspace · {project.totalTabs} Tabs · Tổng context: {formatTokenCount(project.totalTokens)} tokens
@@ -382,12 +382,12 @@ export function PaseoTabsManager({
 
                   <div className="flex items-center gap-2 shrink-0">
                     {project.bloatedCount > 0 && (
-                      <span className="px-2.5 py-1 rounded-lg text-xs font-bold bg-amber-100 text-amber-800 dark:bg-amber-900/50 dark:text-amber-300">
+                      <span className="px-2.5 py-1 rounded-lg text-xs font-bold bg-amber-100 text-amber-800 dark:bg-amber-950/60 dark:text-amber-300 border border-amber-200 dark:border-amber-800">
                         🔴 {project.bloatedCount} Tab quá turns
                       </span>
                     )}
                     <svg
-                      className={`w-5 h-5 text-gray-400 transform transition-transform duration-200 ${
+                      className={`w-5 h-5 text-gray-400 dark:text-gray-500 transform transition-transform duration-200 ${
                         isPrjCollapsed ? "-rotate-90" : ""
                       }`}
                       fill="none"
@@ -401,19 +401,20 @@ export function PaseoTabsManager({
 
                 {/* Level 2: Workspaces in Project */}
                 {!isPrjCollapsed && (
-                  <div className="p-4 space-y-4 bg-gray-50/20 dark:bg-gray-950/20">
+                  <div className="p-4 space-y-4 bg-gray-50/40 dark:bg-gray-950/40">
                     {project.workspaces.map((workspace) => {
                       const isWksCollapsed = collapsedWorkspaces[workspace.workspaceId];
 
                       return (
                         <div
                           key={workspace.workspaceId}
-                          className="rounded-xl border border-gray-200/70 dark:border-gray-750 bg-white dark:bg-gray-850 overflow-hidden shadow-2xs"
+                          className="rounded-xl border border-gray-200 dark:border-gray-800 bg-white dark:bg-gray-850 overflow-hidden shadow-xs"
+                          style={{ backgroundColor: "var(--tw-dark-bg, inherit)" }}
                         >
                           {/* Workspace Header */}
                           <div
                             onClick={() => toggleWorkspace(workspace.workspaceId)}
-                            className="px-4 py-3 flex items-center justify-between cursor-pointer bg-gray-50/70 dark:bg-gray-800/50 hover:bg-gray-100/60 dark:hover:bg-gray-800 transition-colors border-b border-gray-100 dark:border-gray-800"
+                            className="px-4 py-3 flex items-center justify-between cursor-pointer bg-gray-50/80 dark:bg-gray-800/60 hover:bg-gray-100/80 dark:hover:bg-gray-800 transition-colors border-b border-gray-200 dark:border-gray-700/80"
                           >
                             <div className="flex items-center gap-2.5 min-w-0">
                               <span className="text-base">📂</span>
@@ -423,12 +424,12 @@ export function PaseoTabsManager({
                                     Workspace: {workspace.title}
                                   </span>
                                   {workspace.branch && (
-                                    <span className="px-2 py-0.5 rounded-md text-[10px] font-mono bg-blue-50 text-blue-700 dark:bg-blue-900/40 dark:text-blue-300 border border-blue-200/50">
+                                    <span className="px-2 py-0.5 rounded-md text-[10px] font-mono bg-blue-50 text-blue-700 dark:bg-blue-950/60 dark:text-blue-300 border border-blue-200 dark:border-blue-800">
                                       🌿 {workspace.branch}
                                     </span>
                                   )}
                                 </div>
-                                <div className="text-[11px] text-gray-400 font-mono truncate">
+                                <div className="text-[11px] text-gray-500 dark:text-gray-400 font-mono truncate">
                                   ID: {workspace.workspaceId} · Thư mục: {workspace.cwd}
                                 </div>
                               </div>
@@ -439,7 +440,7 @@ export function PaseoTabsManager({
                                 {workspace.tabs.length} tab ({formatTokenCount(workspace.totalTokens)} context)
                               </span>
                               <svg
-                                className={`w-4 h-4 text-gray-400 transform transition-transform duration-200 ${
+                                className={`w-4 h-4 text-gray-400 dark:text-gray-500 transform transition-transform duration-200 ${
                                   isWksCollapsed ? "-rotate-90" : ""
                                 }`}
                                 fill="none"
@@ -453,15 +454,15 @@ export function PaseoTabsManager({
 
                           {/* Level 3: Tabs in Workspace */}
                           {!isWksCollapsed && (
-                            <div className="p-3.5 grid grid-cols-1 md:grid-cols-2 gap-3">
+                            <div className="p-3.5 grid grid-cols-1 md:grid-cols-2 gap-3 bg-white dark:bg-gray-900/60">
                               {workspace.tabs.map((tab) => {
                                 const isWorking = actionLoadingId === tab.id;
                                 const bloatBorder =
                                   tab.bloatLevel === "danger"
-                                    ? "border-red-200/80 bg-red-50/30 dark:border-red-900/40 dark:bg-red-950/20"
+                                    ? "border-red-300 dark:border-red-800/80 bg-red-50/40 dark:bg-red-950/20"
                                     : tab.bloatLevel === "warning"
-                                    ? "border-amber-200/80 bg-amber-50/30 dark:border-amber-900/40 dark:bg-amber-950/20"
-                                    : "border-gray-200/60 bg-gray-50/20 dark:border-gray-800 dark:bg-gray-900/30";
+                                    ? "border-amber-300 dark:border-amber-800/80 bg-amber-50/40 dark:bg-amber-950/20"
+                                    : "border-gray-200 dark:border-gray-700/80 bg-gray-50/40 dark:bg-gray-800/50";
 
                                 return (
                                   <div
@@ -480,31 +481,31 @@ export function PaseoTabsManager({
                                               : "🟢"}
                                           </span>
                                           <h4
-                                            className="text-xs font-bold text-gray-900 dark:text-white truncate"
+                                            className="text-xs font-bold text-gray-900 dark:text-gray-100 truncate"
                                             title={tab.title}
                                           >
                                             {tab.title}
                                           </h4>
                                         </div>
                                         {tab.hasQuotaError && (
-                                          <span className="px-1.5 py-0.5 text-[10px] font-bold rounded-md bg-red-100 text-red-700 dark:bg-red-900/60 dark:text-red-300 shrink-0">
+                                          <span className="px-2 py-0.5 text-[10px] font-bold rounded-md bg-red-100 text-red-700 dark:bg-red-950/80 dark:text-red-300 border border-red-200 dark:border-red-800 shrink-0">
                                             Hết Quota
                                           </span>
                                         )}
                                       </div>
 
                                       {/* Metrics Box */}
-                                      <div className="grid grid-cols-2 gap-2 p-2 rounded-lg bg-white/90 dark:bg-gray-800/80 border border-gray-100 dark:border-gray-700/60 text-xs">
+                                      <div className="grid grid-cols-2 gap-2 p-2 rounded-lg bg-white dark:bg-gray-800 border border-gray-200 dark:border-gray-700 text-xs">
                                         <div>
-                                          <span className="text-[10px] text-gray-400 uppercase tracking-wider block">
+                                          <span className="text-[10px] text-gray-500 dark:text-gray-400 uppercase tracking-wider block">
                                             Context Tokens
                                           </span>
-                                          <span className="font-bold font-mono text-gray-900 dark:text-white">
+                                          <span className="font-bold font-mono text-gray-900 dark:text-gray-100">
                                             {formatTokenCount(tab.inputTokens)}
                                           </span>
                                         </div>
                                         <div>
-                                          <span className="text-[10px] text-gray-400 uppercase tracking-wider block">
+                                          <span className="text-[10px] text-gray-500 dark:text-gray-400 uppercase tracking-wider block">
                                             Số Lượt (Turns)
                                           </span>
                                           <span
@@ -513,7 +514,7 @@ export function PaseoTabsManager({
                                                 ? "text-red-600 dark:text-red-400 font-extrabold"
                                                 : tab.turns >= 18
                                                 ? "text-amber-600 dark:text-amber-400 font-bold"
-                                                : "text-gray-900 dark:text-white"
+                                                : "text-gray-900 dark:text-gray-100"
                                             }`}
                                           >
                                             {tab.turns} turns
@@ -523,8 +524,8 @@ export function PaseoTabsManager({
                                     </div>
 
                                     {/* Tab Actions */}
-                                    <div className="flex items-center justify-between gap-2 pt-2 border-t border-gray-200/50 dark:border-gray-750 text-xs">
-                                      <span className="text-[11px] text-gray-500 dark:text-gray-400 truncate">
+                                    <div className="flex items-center justify-between gap-2 pt-2 border-t border-gray-200 dark:border-gray-700/60 text-xs">
+                                      <span className="text-[11px] text-gray-600 dark:text-gray-400 truncate">
                                         {tab.recommendedAction}
                                       </span>
 
@@ -545,7 +546,7 @@ export function PaseoTabsManager({
                                           onClick={() => void handleSmartResume(tab)}
                                           disabled={isWorking}
                                           title="Gửi prompt định hướng súc tích"
-                                          className="px-2.5 py-1 text-xs font-semibold rounded-lg bg-white dark:bg-gray-800 hover:bg-emerald-50 dark:hover:bg-emerald-950/40 text-gray-800 dark:text-gray-200 border border-gray-200 dark:border-gray-700 transition-colors disabled:opacity-50 flex items-center gap-1 cursor-pointer"
+                                          className="px-2.5 py-1 text-xs font-semibold rounded-lg bg-white dark:bg-gray-800 hover:bg-emerald-50 dark:hover:bg-gray-700 text-gray-800 dark:text-gray-200 border border-gray-300 dark:border-gray-600 transition-colors disabled:opacity-50 flex items-center gap-1 cursor-pointer shadow-2xs"
                                         >
                                           <span>⚡</span>
                                           <span>Resume</span>
