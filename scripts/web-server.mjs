@@ -329,14 +329,53 @@ function findCodexSessionMetrics(sessionId) {
   return { inputTokens: 0, outputTokens: 0, cachedTokens: 0, reasoningTokens: 0, totalTokens: 0, turns: 0 };
 }
 
+function loadPaseoProjectsAndWorkspaces() {
+  const projectsFile = path.join(HOME_DIR, ".paseo", "projects", "projects.json");
+  const workspacesFile = path.join(HOME_DIR, ".paseo", "projects", "workspaces.json");
+
+  const projectsMap = new Map();
+  const workspacesMap = new Map();
+
+  try {
+    if (fs.existsSync(projectsFile)) {
+      const prjList = JSON.parse(fs.readFileSync(projectsFile, "utf8"));
+      for (const p of prjList) {
+        projectsMap.set(p.projectId, {
+          projectId: p.projectId,
+          displayName: p.displayName || path.basename(p.rootPath || "Project"),
+          rootPath: p.rootPath,
+        });
+      }
+    }
+  } catch {}
+
+  try {
+    if (fs.existsSync(workspacesFile)) {
+      const wksList = JSON.parse(fs.readFileSync(workspacesFile, "utf8"));
+      for (const w of wksList) {
+        workspacesMap.set(w.workspaceId, {
+          workspaceId: w.workspaceId,
+          projectId: w.projectId,
+          title: w.title || w.displayName || "Main Workspace",
+          cwd: w.cwd,
+          branch: w.branch,
+        });
+      }
+    }
+  } catch {}
+
+  return { projectsMap, workspacesMap };
+}
+
 function getPaseoTabsAnalytics() {
   const agentsBase = path.join(HOME_DIR, ".paseo", "agents");
   if (!fs.existsSync(agentsBase)) return [];
-  const workspaces = fs.readdirSync(agentsBase);
+  const { projectsMap, workspacesMap } = loadPaseoProjectsAndWorkspaces();
+  const rawWorkspaces = fs.readdirSync(agentsBase);
   const tabs = [];
 
-  for (const wks of workspaces) {
-    const wksPath = path.join(agentsBase, wks);
+  for (const rawWks of rawWorkspaces) {
+    const wksPath = path.join(agentsBase, rawWks);
     try {
       if (!fs.statSync(wksPath).isDirectory()) continue;
       const files = fs.readdirSync(wksPath);
@@ -371,11 +410,23 @@ function getPaseoTabsAnalytics() {
           const provider = data.provider || "codex";
           const model = data.config?.model || data.runtimeInfo?.model || null;
 
+          const workspaceId = data.workspaceId || rawWks;
+          const wksMeta = workspacesMap.get(workspaceId);
+          const projectId = wksMeta?.projectId || "default_project";
+          const prjMeta = projectsMap.get(projectId);
+
+          const projectName = prjMeta?.displayName || (data.cwd ? path.basename(data.cwd) : "Default Project");
+          const workspaceTitle = wksMeta?.title || (data.cwd ? path.basename(data.cwd) : "Main Workspace");
+
           tabs.push({
             id: data.id,
             title: data.title || "Cuộc trò chuyện Paseo",
-            cwd: data.cwd || "",
-            workspaceId: data.workspaceId || wks,
+            cwd: data.cwd || wksMeta?.cwd || "",
+            workspaceId,
+            workspaceTitle,
+            projectId,
+            projectName,
+            branch: wksMeta?.branch || null,
             provider,
             model,
             updatedAt: data.updatedAt || new Date(stats.mtimeMs).toISOString(),

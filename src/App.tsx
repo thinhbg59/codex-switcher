@@ -274,6 +274,58 @@ function App() {
   const [closeBehaviorPromptOpen, setCloseBehaviorPromptOpen] = useState(false);
   const [closeBehaviorDontAskAgain, setCloseBehaviorDontAskAgain] = useState(false);
   const [isCompletingCloseBehavior, setIsCompletingCloseBehavior] = useState(false);
+
+  // Dedicated Route Views: "accounts" | "paseo_tabs"
+  const [currentView, setCurrentView] = useState<"accounts" | "paseo_tabs">(() => {
+    if (typeof window === "undefined") return "accounts";
+    const hash = (window.location.hash || "").toLowerCase();
+    const path = (window.location.pathname || "").toLowerCase();
+    if (
+      hash === "#/paseo" ||
+      hash === "#/tabs" ||
+      hash === "#/projects" ||
+      path.startsWith("/paseo") ||
+      path.startsWith("/tabs") ||
+      path.startsWith("/projects")
+    ) {
+      return "paseo_tabs";
+    }
+    return "accounts";
+  });
+
+  useEffect(() => {
+    const handleLocationChange = () => {
+      const hash = (window.location.hash || "").toLowerCase();
+      const path = (window.location.pathname || "").toLowerCase();
+      if (
+        hash === "#/paseo" ||
+        hash === "#/tabs" ||
+        hash === "#/projects" ||
+        path.startsWith("/paseo") ||
+        path.startsWith("/tabs") ||
+        path.startsWith("/projects")
+      ) {
+        setCurrentView("paseo_tabs");
+      } else {
+        setCurrentView("accounts");
+      }
+    };
+    window.addEventListener("hashchange", handleLocationChange);
+    window.addEventListener("popstate", handleLocationChange);
+    return () => {
+      window.removeEventListener("hashchange", handleLocationChange);
+      window.removeEventListener("popstate", handleLocationChange);
+    };
+  }, []);
+
+  const navigateToView = (view: "accounts" | "paseo_tabs") => {
+    setCurrentView(view);
+    if (view === "paseo_tabs") {
+      window.location.hash = "#/paseo";
+    } else {
+      window.location.hash = "#/";
+    }
+  };
   const accountsRef = useRef(accounts);
   const autoWarmupAccountIdsRef = useRef(autoWarmupAccountIds);
   const autoWarmupLedgerRef = useRef(autoWarmupLedger);
@@ -1988,7 +2040,47 @@ function App() {
 
       {/* Main Content */}
       <main className="max-w-5xl mx-auto px-6 pt-4 pb-8">
-        {loading && accounts.length === 0 ? (
+        {/* Top Level Route Segmented Navigation */}
+        <div className="flex flex-wrap items-center justify-between gap-3 mb-6 pb-3 border-b border-gray-200/60 dark:border-gray-800/80">
+          <div className="flex items-center gap-1.5 p-1 bg-gray-100 dark:bg-gray-800/90 rounded-2xl border border-gray-200/80 dark:border-gray-700/70 shadow-2xs">
+            <button
+              onClick={() => navigateToView("accounts")}
+              className={`px-4 py-2 rounded-xl text-xs font-bold transition-all flex items-center gap-2 cursor-pointer ${
+                currentView === "accounts"
+                  ? "bg-white dark:bg-gray-700 text-gray-900 dark:text-white shadow-xs"
+                  : "text-gray-600 dark:text-gray-400 hover:text-gray-900 dark:hover:text-gray-200"
+              }`}
+            >
+              <span>👥</span>
+              <span>Dashboard Tài Khoản</span>
+            </button>
+            <button
+              onClick={() => navigateToView("paseo_tabs")}
+              className={`px-4 py-2 rounded-xl text-xs font-bold transition-all flex items-center gap-2 cursor-pointer ${
+                currentView === "paseo_tabs"
+                  ? "bg-gradient-to-r from-emerald-500 to-teal-600 text-white shadow-xs"
+                  : "text-gray-600 dark:text-gray-400 hover:text-gray-900 dark:hover:text-gray-200"
+              }`}
+            >
+              <span>🎯</span>
+              <span>Quản Lý Paseo (Project & Tabs)</span>
+            </button>
+          </div>
+
+          <div className="hidden sm:flex items-center gap-2 text-xs text-gray-400 dark:text-gray-500 font-mono">
+            <span>Route:</span>
+            <span className="px-2 py-0.5 rounded-md bg-gray-100 dark:bg-gray-800 text-gray-600 dark:text-gray-300 font-bold">
+              {currentView === "paseo_tabs" ? "#/paseo" : "#/"}
+            </span>
+          </div>
+        </div>
+
+        {currentView === "paseo_tabs" ? (
+          <PaseoTabsManager
+            onShowToast={(msg, isErr) => showWarmupToast(msg, isErr)}
+            onNavigateHome={() => navigateToView("accounts")}
+          />
+        ) : loading && accounts.length === 0 ? (
           <div className="flex flex-col items-center justify-center py-20">
             <div className="animate-spin h-10 w-10 border-2 border-gray-900 dark:border-gray-100 border-t-transparent rounded-full mb-4"></div>
             <p className="text-gray-500 dark:text-gray-400">Loading accounts...</p>
@@ -2077,9 +2169,6 @@ function App() {
 
             {/* Token & Quota Analytics Widget */}
             <AnalyticsWidget />
-
-            {/* Paseo Tabs Context & Smart Handoff Manager */}
-            <PaseoTabsManager onShowToast={(msg, isErr) => showWarmupToast(msg, isErr)} />
 
             {/* Active Account */}
             {activeAccount &&
