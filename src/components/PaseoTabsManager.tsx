@@ -141,12 +141,12 @@ export function PaseoTabsManager({
       onShowToast?.(`Đang tách tab mới tinh gọn cho "${tab.title}"...`);
       const res = await invokeBackend<{
         ok: boolean;
-        result?: { newAgentId?: string; title?: string };
+        result?: { newAgentId?: string; title?: string; workspaceTitle?: string };
       }>("create_paseo_fresh_handoff_tab", { agentId: tab.id });
 
       if (res?.ok) {
         onShowToast?.(
-          `🌱 Đã tạo tab mới tinh gọn "${res.result?.title || tab.title}" thành công (Tiết kiệm >85% Quota)!`
+          `🌱 Đã tạo tab mới tinh gọn "${res.result?.title || tab.title}" trong Workspace "${tab.workspaceTitle}" thành công (Tiết kiệm >85% Quota)!`
         );
       } else {
         onShowToast?.("Đã tạo tab Paseo mới thành công!");

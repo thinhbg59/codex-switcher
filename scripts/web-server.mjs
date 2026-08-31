@@ -504,16 +504,18 @@ async function createPaseoFreshHandoffTab(agentId, promptOverride = null) {
   const cwd = target.cwd || HOME_DIR;
   const provider = target.provider || "codex";
   const modelFlag = target.model ? ` --model "${target.model}"` : "";
+  const workspaceId = target.workspaceId || null;
+  const workspaceFlag = workspaceId && workspaceId.startsWith("wks_") ? ` --workspace "${workspaceId}"` : "";
 
   const handoffPrompt = promptOverride && promptOverride.trim()
     ? promptOverride.trim()
     : `Tiếp nối nhiệm vụ: "${rawTitle}". Hãy phân tích nhanh trạng thái hiện tại của code trong thư mục và hoàn thành các bước tiếp theo. Giữ câu trả lời súc tích, đi thẳng vào code sửa đổi.`;
 
-  console.log(`[PaseoHandoff] Spawning fresh agent for "${newTitle}" in "${cwd}" (provider: ${provider})...`);
+  console.log(`[PaseoHandoff] Spawning fresh agent for "${newTitle}" in workspace "${workspaceId}" ("${cwd}", provider: ${provider})...`);
 
   let newAgentId = null;
   try {
-    const cmd = `"${PASEO_CLI_PATH}" run --provider "${provider}"${modelFlag} --cwd "${cwd.replace(/"/g, '\\"')}" --title "${newTitle.replace(/"/g, '\\"')}" -d --json "${handoffPrompt.replace(/"/g, '\\"')}"`;
+    const cmd = `"${PASEO_CLI_PATH}" run --provider "${provider}"${modelFlag}${workspaceFlag} --cwd "${cwd.replace(/"/g, '\\"')}" --title "${newTitle.replace(/"/g, '\\"')}" -d --json "${handoffPrompt.replace(/"/g, '\\"')}"`;
     const { stdout } = await execAsync(cmd);
     try {
       const parsed = JSON.parse(stdout);
@@ -537,6 +539,8 @@ async function createPaseoFreshHandoffTab(agentId, promptOverride = null) {
     ok: true,
     originalAgentId: agentId,
     newAgentId,
+    workspaceId,
+    workspaceTitle: target.workspaceTitle,
     title: newTitle,
     cwd,
     prompt: handoffPrompt,
