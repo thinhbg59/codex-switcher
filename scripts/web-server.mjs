@@ -306,7 +306,7 @@ function detectPaseoQuotaErrors() {
 
 let lastHandledPaseoErrors = {};
 
-async function switchAccountAndRestartPaseo(targetAccountId = null) {
+async function switchAccountAndRestartPaseo(targetAccountId = null, forceRestartApp = false) {
   const allAccounts = await invokeBackendApi("list_accounts").catch(() => []);
   const activeAccount = await invokeBackendApi("get_active_account_info").catch(() => null);
 
@@ -340,23 +340,21 @@ async function switchAccountAndRestartPaseo(targetAccountId = null) {
     throw new Error("Không tìm thấy tài khoản mục tiêu.");
   }
 
-  // 1. Close Paseo gracefully
-  await closePaseoApp().catch(() => {});
-  await new Promise((r) => setTimeout(r, 600));
-
-  // Check if Paseo is still running, force kill if needed
+  // Check if Paseo is currently running
   const info = await getPaseoProcesses();
-  if (info.count > 0) {
-    await killPaseoProcesses().catch(() => {});
-    await new Promise((r) => setTimeout(r, 400));
+
+  if (info.count > 0 && !forceRestartApp) {
+    // IN-PLACE HOT RELOAD: Keep desktop window open, reload worker process & daemon in 0.5s!
+    console.log(`[PaseoHotReload] In-place reloading Paseo worker for account ${target.name}...`);
+    return await hotReloadAccountForPaseo(target.id);
   }
 
-  // 2. Switch account
+  // If Paseo is not running, just switch account and open Paseo
   await invokeBackendApi("switch_account", { accountId: target.id });
-  await new Promise((r) => setTimeout(r, 1000));
-
-  // 3. Re-open Paseo
-  await openPaseoApp().catch(() => {});
+  await new Promise((r) => setTimeout(r, 600));
+  if (forceRestartApp || info.count === 0) {
+    await openPaseoApp().catch(() => {});
+  }
 
   const usage = await invokeBackendApi("get_usage", { accountId: target.id }).catch(() => null);
   return {

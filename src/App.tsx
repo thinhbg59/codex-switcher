@@ -1270,15 +1270,15 @@ function App() {
   const handleSwitchAndRestartPaseo = async (targetAccountId?: string) => {
     try {
       setIsSwitchingAndRestartingPaseo(true);
-      showWarmupToast("Đang đóng Paseo, đổi tài khoản và mở lại Paseo...");
+      showWarmupToast("Đang đổi tài khoản và nạp lại Paseo (không đóng app)...");
       const res = await invokeBackend<{ ok: boolean; result?: { switchedTo: { id: string; name: string }; usage: unknown } }>(
         "switch_and_restart_paseo",
         { accountId: targetAccountId }
       );
       if (res?.result?.switchedTo) {
-        showWarmupToast(`Đã chuyển sang ${res.result.switchedTo.name} & mở lại Paseo!`);
+        showWarmupToast(`Đã chuyển sang ${res.result.switchedTo.name} & nạp lại Paseo thành công!`);
       } else {
-        showWarmupToast("Đã chuyển tài khoản & mở lại Paseo thành công!");
+        showWarmupToast("Đã chuyển tài khoản & nạp lại Paseo thành công!");
       }
       await loadAccounts();
       setTimeout(() => {

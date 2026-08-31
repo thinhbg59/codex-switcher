@@ -394,7 +394,7 @@ export function AccountCard({
                 onClick={onSwitchAndRestartPaseo}
                 disabled={switching}
                 className="px-2.5 py-2 text-xs font-semibold rounded-lg bg-emerald-50 hover:bg-emerald-100 dark:bg-emerald-950/40 dark:hover:bg-emerald-900/60 text-emerald-800 dark:text-emerald-300 border border-emerald-200 dark:border-emerald-800 transition-colors disabled:opacity-50 whitespace-nowrap shadow-sm"
-                title="Đóng Paseo, chuyển sang tài khoản này và mở lại Paseo"
+                title="Chuyển sang tài khoản này và nạp lại Paseo ngay lập tức (không đóng app)"
               >
                 🔄 + Paseo
               </button>
