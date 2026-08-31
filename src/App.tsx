@@ -1,7 +1,7 @@
 import { useState, useEffect, useCallback, useMemo, useRef } from "react";
 import { useAccounts } from "./hooks/useAccounts";
 import { useForceCloseCodexProcesses } from "./hooks/useForceCloseCodexProcesses";
-import { AccountCard, AddAccountModal, UpdateChecker } from "./components";
+import { AccountCard, AddAccountModal, UpdateChecker, AnalyticsWidget } from "./components";
 import type { AccountWithUsage, CodexProcessInfo, DockDisplayMode, UsageInfo } from "./types";
 import {
   exportFullBackupFile,
@@ -2073,6 +2073,9 @@ function App() {
                 )}
               </div>
             )}
+
+            {/* Token & Quota Analytics Widget */}
+            <AnalyticsWidget />
 
             {/* Active Account */}
             {activeAccount &&

@@ -2,6 +2,7 @@ import http from "node:http";
 import fs from "node:fs";
 import os from "node:os";
 import path from "node:path";
+import readline from "node:readline";
 import { spawn, exec } from "node:child_process";
 import { promisify } from "node:util";
 import { fileURLToPath } from "node:url";
@@ -547,6 +548,235 @@ setInterval(async () => {
   }
 }, 10 * 1000);
 
+// ==================== TOKEN & QUOTA ANALYTICS MODULE ====================
+
+const SESSIONS_DIR = path.join(HOME_DIR, ".codex", "sessions");
+const sessionFileCache = new Map();
+let cachedTokenStats = null;
+let lastTokenAggregationTime = 0;
+let isAggregatingTokens = false;
+
+function getRelevantSessionFiles(cutoffMs) {
+  if (!fs.existsSync(SESSIONS_DIR)) return [];
+  const cutoffStr = new Date(cutoffMs).toISOString().slice(0, 10);
+  const cutoffYear = cutoffStr.slice(0, 4);
+
+  const files = [];
+  try {
+    const years = fs.readdirSync(SESSIONS_DIR).filter((y) => /^\d{4}$/.test(y) && y >= cutoffYear);
+    for (const y of years) {
+      const yPath = path.join(SESSIONS_DIR, y);
+      const months = fs.readdirSync(yPath).filter((m) => /^\d{2}$/.test(m));
+      for (const m of months) {
+        const mPath = path.join(yPath, m);
+        const days = fs.readdirSync(mPath).filter((d) => /^\d{2}$/.test(d));
+        for (const d of days) {
+          const dateStr = `${y}-${m}-${d}`;
+          if (dateStr < cutoffStr) continue;
+          const dPath = path.join(mPath, d);
+          const dayFiles = fs.readdirSync(dPath).filter((f) => f.endsWith(".jsonl"));
+          for (const f of dayFiles) {
+            files.push(path.join(dPath, f));
+          }
+        }
+      }
+    }
+  } catch (err) {
+    console.error("[TokenAnalytics] Error discovering session files:", err.message);
+  }
+  return files;
+}
+
+async function parseSessionFile(filePath) {
+  try {
+    const stats = fs.statSync(filePath);
+    const cached = sessionFileCache.get(filePath);
+    if (cached && cached.mtimeMs === stats.mtimeMs && cached.size === stats.size) {
+      return cached.records;
+    }
+
+    const records = [];
+    const fileStream = fs.createReadStream(filePath, { encoding: "utf8" });
+    const rl = readline.createInterface({ input: fileStream, crlfDelay: Infinity });
+
+    for await (const line of rl) {
+      if (!line.includes('"token_count"')) continue;
+      try {
+        const data = JSON.parse(line);
+        if (data.type === "event_msg" && data.payload?.type === "token_count") {
+          const ts = new Date(data.timestamp).getTime();
+          const usage = data.payload.info?.last_token_usage;
+          if (usage && !isNaN(ts)) {
+            records.push({
+              ts,
+              input: usage.input_tokens || 0,
+              output: usage.output_tokens || 0,
+              cached: usage.cached_input_tokens || 0,
+              reasoning: usage.reasoning_output_tokens || 0,
+              total: usage.total_tokens || 0,
+            });
+          }
+        }
+      } catch {}
+    }
+
+    sessionFileCache.set(filePath, { mtimeMs: stats.mtimeMs, size: stats.size, records });
+    return records;
+  } catch {
+    return [];
+  }
+}
+
+const ANALYTICS_WINDOWS = [
+  { key: "1h", label: "1 Giờ", ms: 1 * 3600 * 1000 },
+  { key: "24h", label: "24 Giờ", ms: 24 * 3600 * 1000 },
+  { key: "3d", label: "3 Ngày", ms: 3 * 24 * 3600 * 1000 },
+  { key: "7d", label: "7 Ngày", ms: 7 * 24 * 3600 * 1000 },
+  { key: "30d", label: "30 Ngày", ms: 30 * 24 * 3600 * 1000 },
+];
+
+async function updateTokenAnalytics() {
+  if (isAggregatingTokens) return cachedTokenStats;
+  isAggregatingTokens = true;
+
+  try {
+    const maxWindow = 30 * 24 * 3600 * 1000;
+    const cutoffMs = Date.now() - maxWindow;
+    const files = getRelevantSessionFiles(cutoffMs);
+
+    const allRecords = [];
+    for (const file of files) {
+      const records = await parseSessionFile(file);
+      for (const r of records) {
+        allRecords.push(r);
+      }
+    }
+
+    const now = Date.now();
+    const result = {};
+
+    for (const win of ANALYTICS_WINDOWS) {
+      const winCutoff = now - win.ms;
+      let input = 0;
+      let output = 0;
+      let cached = 0;
+      let reasoning = 0;
+      let total = 0;
+      let turns = 0;
+
+      for (const r of allRecords) {
+        if (r.ts >= winCutoff) {
+          input += r.input;
+          output += r.output;
+          cached += r.cached;
+          reasoning += r.reasoning;
+          total += r.total;
+          turns++;
+        }
+      }
+
+      const cacheHitRate = input > 0 ? (cached / input) * 100 : 0;
+      const avgPerTurn = turns > 0 ? Math.round(total / turns) : 0;
+
+      result[win.key] = {
+        key: win.key,
+        label: win.label,
+        turns,
+        total,
+        input,
+        output,
+        cached,
+        reasoning,
+        cacheHitRate: parseFloat(cacheHitRate.toFixed(1)),
+        avgPerTurn,
+      };
+    }
+
+    cachedTokenStats = result;
+    lastTokenAggregationTime = now;
+    return result;
+  } catch (err) {
+    console.error("[TokenAnalytics] Aggregation error:", err.message);
+    return cachedTokenStats || {};
+  } finally {
+    isAggregatingTokens = false;
+  }
+}
+
+// Initial aggregation in background + interval every 45s
+void updateTokenAnalytics();
+setInterval(() => {
+  void updateTokenAnalytics();
+}, 45 * 1000);
+
+async function getSystemQuotaOverview() {
+  const accounts = await invokeBackendApi("list_accounts").catch(() => []);
+  const active = await invokeBackendApi("get_active_account_info").catch(() => null);
+
+  let readyCount = 0; // <= 20% used
+  let midCount = 0; // 21-80% used
+  let highCount = 0; // 81-94% used
+  let exhaustedCount = 0; // >= 95% used
+  let sumUsed = 0;
+  let validUsageCount = 0;
+
+  const accountsWithUsage = [];
+  for (const acc of accounts) {
+    let usage = null;
+    let usedPercent = null;
+    try {
+      usage = await invokeBackendApi("get_usage", { accountId: acc.id });
+      if (typeof usage?.primary_used_percent === "number") {
+        usedPercent = usage.primary_used_percent;
+        sumUsed += usedPercent;
+        validUsageCount++;
+        if (usedPercent <= 20) readyCount++;
+        else if (usedPercent <= 80) midCount++;
+        else if (usedPercent < 95) highCount++;
+        else exhaustedCount++;
+      }
+    } catch {}
+
+    accountsWithUsage.push({
+      id: acc.id,
+      name: acc.name,
+      email: acc.email,
+      plan_type: acc.plan_type,
+      is_active: acc.is_active,
+      used_percent: usedPercent,
+      resets_at: usage?.primary_resets_at || null,
+    });
+  }
+
+  const avgUsed = validUsageCount > 0 ? sumUsed / validUsageCount : 0;
+
+  return {
+    totalAccounts: accounts.length,
+    readyCount,
+    midCount,
+    highCount,
+    exhaustedCount,
+    avgUsedPercent: parseFloat(avgUsed.toFixed(1)),
+    activeAccount: active
+      ? {
+          id: active.id,
+          name: active.name,
+          email: active.email,
+          plan_type: active.plan_type,
+        }
+      : null,
+    accounts: accountsWithUsage,
+  };
+}
+
+function formatTokenCount(num) {
+  if (typeof num !== "number" || isNaN(num)) return "0";
+  if (num >= 1e9) return (num / 1e9).toFixed(2) + " tỷ (B)";
+  if (num >= 1e6) return (num / 1e6).toFixed(2) + " triệu (M)";
+  if (num >= 1e3) return (num / 1e3).toFixed(1) + " K";
+  return num.toLocaleString();
+}
+
 // ==================== AUTO-SWITCH & LOW QUOTA MONITOR ====================
 
 let lastAlerts = {};
@@ -717,7 +947,7 @@ async function handleTelegramMessage(msg, botToken, config) {
   // 1. /start, /help
   if (lower === "/start" || lower === "/help") {
     const active = await invokeBackendApi("get_active_account_info").catch(() => null);
-    const welcome = `👋 *Xin chào! Tôi là Bot điều khiển Codex Switcher.*\n\n⚡ *Tài khoản active:* \`${active?.name || "Chưa chọn"}\`\n\n📱 *Các lệnh điều khiển:*\n• /resume\\_paseo (hoặc /tieptuc) - Tự đổi tài khoản & gửi 'tiếp tục' trên Paseo\n• /restart\\_paseo - Đổi tài khoản & khởi động lại Paseo\n• /list - Danh sách tài khoản & nút chuyển nhanh\n• /active - Xem chi tiết hạn mức tài khoản hiện tại\n• /switch <số hoặc tên> - Chuyển sang tài khoản\n• /warmup - Warm up tất cả tài khoản\n• /paseo - Trạng thái & Mở/Đóng app Paseo\n• /codex - Trạng thái & Mở/Đóng app Codex\n\n👉 _Hoặc bấm các nút bên dưới:_`;
+    const welcome = `👋 *Xin chào! Tôi là Bot điều khiển Codex Switcher.*\n\n⚡ *Tài khoản active:* \`${active?.name || "Chưa chọn"}\`\n\n📱 *Các lệnh điều khiển:*\n• /usage (hoặc /tokens) - Thống kê tổng token đã dùng (1h, 1d, 3d, 7d, 30d)\n• /resume\\_paseo (hoặc /tieptuc) - Tự đổi tài khoản & gửi 'tiếp tục' trên Paseo\n• /restart\\_paseo - Đổi tài khoản & khởi động lại Paseo\n• /list - Danh sách tài khoản & nút chuyển nhanh\n• /active - Xem chi tiết hạn mức tài khoản hiện tại\n• /switch <số hoặc tên> - Chuyển sang tài khoản\n• /warmup - Warm up tất cả tài khoản\n• /paseo - Trạng thái & Mở/Đóng app Paseo\n• /codex - Trạng thái & Mở/Đóng app Codex\n\n👉 _Hoặc bấm các nút bên dưới:_`;
 
     await sendTelegramNotification({
       botToken,
@@ -726,6 +956,7 @@ async function handleTelegramMessage(msg, botToken, config) {
       replyMarkup: {
         inline_keyboard: [
           [
+            { text: "📊 Thống kê Token & Quota", callback_data: "token_win:24h" },
             { text: "🚀 Đổi Acc & Tiếp tục Paseo", callback_data: "cmd_auto_resume_paseo" },
           ],
           [
@@ -743,6 +974,26 @@ async function handleTelegramMessage(msg, botToken, config) {
         ],
       },
     });
+    return;
+  }
+
+  // 1.5. /usage, /tokens, /token, /analytics, /quota
+  if (
+    lower === "/usage" ||
+    lower === "/tokens" ||
+    lower === "/token" ||
+    lower === "/analytics" ||
+    lower === "/quota" ||
+    lower.startsWith("/usage ") ||
+    lower.startsWith("/tokens ") ||
+    lower.startsWith("/token ")
+  ) {
+    let winKey = "24h";
+    if (lower.includes("1h") || lower.includes("1 giờ") || lower.includes("1 gio")) winKey = "1h";
+    else if (lower.includes("3d") || lower.includes("3 ngày") || lower.includes("3 ngay")) winKey = "3d";
+    else if (lower.includes("7d") || lower.includes("7 ngày") || lower.includes("7 ngay") || lower.includes("1w") || lower.includes("1 tuần")) winKey = "7d";
+    else if (lower.includes("30d") || lower.includes("30 ngày") || lower.includes("30 ngay") || lower.includes("1m") || lower.includes("1 tháng")) winKey = "30d";
+    await sendTokenAnalyticsMessage(botToken, chatId, winKey);
     return;
   }
 
@@ -1092,10 +1343,101 @@ async function performAutoResumePaseoNotify(botToken, chatId, targetAgentId = nu
   }
 }
 
+async function sendTokenAnalyticsMessage(botToken, chatId, selectedWinKey = "24h") {
+  try {
+    const stats = cachedTokenStats || (await updateTokenAnalytics());
+    const data = stats[selectedWinKey] || stats["24h"] || Object.values(stats)[0] || {
+      total: 0,
+      input: 0,
+      output: 0,
+      cached: 0,
+      reasoning: 0,
+      turns: 0,
+      cacheHitRate: 0,
+      avgPerTurn: 0,
+    };
+    const quotaOverview = await getSystemQuotaOverview().catch(() => null);
+
+    const winLabels = {
+      "1h": "⚡ 1 Giờ gần nhất",
+      "24h": "📅 24 Giờ (1 Ngày)",
+      "3d": "📆 3 Ngày gần nhất",
+      "7d": "📊 7 Ngày gần nhất",
+      "30d": "📈 30 Ngày gần nhất",
+    };
+
+    const currentLabel = winLabels[selectedWinKey] || selectedWinKey;
+
+    const tgMsg = `📊 *BÁO CÁO TOKEN & QUOTA CODEX*
+⏱ *Khung thời gian:* *${currentLabel}*
+
+🔥 *Tổng Token tiêu thụ:* *${formatTokenCount(data.total)}* (${data.total.toLocaleString()} tokens)
+💬 *Tổng lượt tương tác (Turns):* *${data.turns.toLocaleString()}* lượt
+⚡ *Trung bình mỗi lượt:* *${data.avgPerTurn.toLocaleString()}* tokens/turn
+
+📋 *Chi tiết phân bổ Token:*
+• 📥 *Input Prompt:* \`${formatTokenCount(data.input)}\`
+• 📤 *Output Generation:* \`${formatTokenCount(data.output)}\`
+• 🧠 *Reasoning / Thinking:* \`${formatTokenCount(data.reasoning)}\`
+• ⚡ *Cached Input (Đã cache):* \`${formatTokenCount(data.cached)}\`
+🎯 *Tỷ lệ Cache Hit:* *${data.cacheHitRate}%* _(Tiết kiệm ${formatTokenCount(data.cached)} tokens!)_
+
+${
+  quotaOverview
+    ? `🌐 *Tổng quan Quota Hệ Thống:*
+• 👥 Tổng tài khoản: *${quotaOverview.totalAccounts}*
+• 🟢 Sẵn sàng (0-20%): *${quotaOverview.readyCount}* acc
+• 🟡 Đang dùng (21-80%): *${quotaOverview.midCount}* acc
+• 🔴 Sắp/Đã hết limit: *${quotaOverview.exhaustedCount}* acc
+• ⚡ Active: \`${quotaOverview.activeAccount?.name || "Chưa chọn"}\``
+    : ""
+}
+
+👉 _Bấm nút bên dưới để đổi mốc thời gian:_`;
+
+    const inlineButtons = [
+      [
+        { text: selectedWinKey === "1h" ? "• 1 Giờ •" : "1 Giờ", callback_data: "token_win:1h" },
+        { text: selectedWinKey === "24h" ? "• 24 Giờ •" : "24 Giờ", callback_data: "token_win:24h" },
+        { text: selectedWinKey === "3d" ? "• 3 Ngày •" : "3 Ngày", callback_data: "token_win:3d" },
+      ],
+      [
+        { text: selectedWinKey === "7d" ? "• 7 Ngày •" : "7 Ngày", callback_data: "token_win:7d" },
+        { text: selectedWinKey === "30d" ? "• 30 Ngày •" : "30 Ngày", callback_data: "token_win:30d" },
+        { text: "🔄 Refresh", callback_data: `token_win:${selectedWinKey}` },
+      ],
+      [
+        { text: "📋 Danh sách tài khoản", callback_data: "cmd_list" },
+        { text: "📱 Mở Dashboard", url: DASHBOARD_URL },
+      ],
+    ];
+
+    await sendTelegramNotification({
+      botToken,
+      chatId,
+      text: tgMsg,
+      replyMarkup: { inline_keyboard: inlineButtons },
+    });
+  } catch (err) {
+    await sendTelegramNotification({
+      botToken,
+      chatId,
+      text: `❌ Lỗi lấy thống kê token: ${err.message}`,
+    }).catch(() => {});
+  }
+}
+
 async function handleTelegramCallbackQuery(query, botToken, config) {
   const chatId = query.message?.chat?.id;
   const data = query.data;
   if (!chatId || !data) return;
+
+  if (data.startsWith("token_win:")) {
+    const winKey = data.split(":")[1] || "24h";
+    await answerTelegramCallbackQuery(botToken, query.id, `Đang tải thống kê ${winKey}...`);
+    await sendTokenAnalyticsMessage(botToken, chatId, winKey);
+    return;
+  }
 
   if (data === "cmd_auto_resume_paseo") {
     await answerTelegramCallbackQuery(botToken, query.id, "Đang khôi phục Paseo...");
@@ -1463,6 +1805,37 @@ function parseRequestBody(req) {
 
 const server = http.createServer(async (req, res) => {
   const url = new URL(req.url || "/", `http://${req.headers.host || "localhost"}`);
+
+  // ==================== TOKEN & QUOTA ANALYTICS ROUTES ====================
+
+  if (url.pathname === "/api/invoke/get_token_analytics") {
+    try {
+      const stats = cachedTokenStats || await updateTokenAnalytics();
+      res.writeHead(200, { "Content-Type": "application/json" });
+      res.end(JSON.stringify({
+        ok: true,
+        stats,
+        lastUpdated: lastTokenAggregationTime,
+        windows: ANALYTICS_WINDOWS,
+      }));
+    } catch (err) {
+      res.writeHead(500, { "Content-Type": "application/json" });
+      res.end(JSON.stringify({ error: err.message }));
+    }
+    return;
+  }
+
+  if (url.pathname === "/api/invoke/get_system_quota_overview") {
+    try {
+      const overview = await getSystemQuotaOverview();
+      res.writeHead(200, { "Content-Type": "application/json" });
+      res.end(JSON.stringify({ ok: true, overview }));
+    } catch (err) {
+      res.writeHead(500, { "Content-Type": "application/json" });
+      res.end(JSON.stringify({ error: err.message }));
+    }
+    return;
+  }
 
   // ==================== NOTIFICATION & SWITCH-PASEO ROUTES ====================
 
