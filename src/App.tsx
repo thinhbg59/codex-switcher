@@ -1,7 +1,7 @@
 import { useState, useEffect, useCallback, useMemo, useRef } from "react";
 import { useAccounts } from "./hooks/useAccounts";
 import { useForceCloseCodexProcesses } from "./hooks/useForceCloseCodexProcesses";
-import { AccountCard, AddAccountModal, UpdateChecker, AnalyticsWidget } from "./components";
+import { AccountCard, AddAccountModal, UpdateChecker, AnalyticsWidget, PaseoTabsManager } from "./components";
 import type { AccountWithUsage, CodexProcessInfo, DockDisplayMode, UsageInfo } from "./types";
 import {
   exportFullBackupFile,
@@ -259,6 +259,7 @@ function App() {
     autoSwitch: { enabled: false, threshold: 95 },
     autoResumePaseo: true,
     resumePrompt: "tiếp tục",
+    smartResumeMode: "smart" as "smart" | "compact" | "custom",
   });
   const [isTestingTelegram, setIsTestingTelegram] = useState(false);
   const [isDetectingChatId, setIsDetectingChatId] = useState(false);
@@ -2077,6 +2078,9 @@ function App() {
             {/* Token & Quota Analytics Widget */}
             <AnalyticsWidget />
 
+            {/* Paseo Tabs Context & Smart Handoff Manager */}
+            <PaseoTabsManager onShowToast={(msg, isErr) => showWarmupToast(msg, isErr)} />
+
             {/* Active Account */}
             {activeAccount &&
               matchesAccountSearch(activeAccount, normalizedAccountSearchQuery) && (
@@ -2662,25 +2666,80 @@ function App() {
                 </p>
 
                 {notificationConfig.autoResumePaseo && (
-                  <div className="pt-1 border-t border-purple-200/60 dark:border-purple-800/60">
-                    <label className="block text-xs font-semibold text-purple-900 dark:text-purple-200 mb-1">
-                      Tin nhắn gửi đi khi tiếp tục (Resume Prompt):
-                    </label>
-                    <input
-                      type="text"
-                      value={notificationConfig.resumePrompt ?? "tiếp tục"}
-                      onChange={(e) =>
-                        setNotificationConfig((prev) => ({
-                          ...prev,
-                          resumePrompt: e.target.value,
-                        }))
-                      }
-                      placeholder="tiếp tục"
-                      className="w-full h-9 px-3 rounded-lg border border-purple-300 dark:border-purple-700 bg-white dark:bg-gray-800 text-sm text-gray-900 dark:text-gray-100 placeholder-gray-400 focus:outline-none focus:ring-2 focus:ring-purple-500"
-                    />
-                    <p className="text-[11px] text-purple-700 dark:text-purple-300 mt-1">
-                      Mặc định là <code className="px-1 py-0.5 rounded bg-purple-100 dark:bg-purple-900/40">tiếp tục</code>. Bạn có thể đổi thành <code className="px-1 py-0.5 rounded bg-purple-100 dark:bg-purple-900/40">tiếp tục công việc</code>, <code className="px-1 py-0.5 rounded bg-purple-100 dark:bg-purple-900/40">continue</code>, v.v.
-                    </p>
+                  <div className="pt-2 border-t border-purple-200/60 dark:border-purple-800/60 space-y-2.5">
+                    <div>
+                      <label className="block text-xs font-semibold text-purple-900 dark:text-purple-200 mb-1">
+                        Chế độ tiếp tục thông minh (Smart Resume Mode):
+                      </label>
+                      <div className="grid grid-cols-3 gap-2">
+                        <button
+                          type="button"
+                          onClick={() =>
+                            setNotificationConfig((prev) => ({ ...prev, smartResumeMode: "smart" }))
+                          }
+                          className={`px-2.5 py-1.5 rounded-lg text-xs font-medium border transition-colors ${
+                            (notificationConfig.smartResumeMode ?? "smart") === "smart"
+                              ? "bg-purple-600 text-white border-purple-600 shadow-xs"
+                              : "bg-white dark:bg-gray-800 text-gray-700 dark:text-gray-300 border-purple-200 dark:border-purple-800 hover:bg-purple-50"
+                          }`}
+                        >
+                          ⚡ Smart (Khuyên dùng)
+                        </button>
+                        <button
+                          type="button"
+                          onClick={() =>
+                            setNotificationConfig((prev) => ({ ...prev, smartResumeMode: "compact" }))
+                          }
+                          className={`px-2.5 py-1.5 rounded-lg text-xs font-medium border transition-colors ${
+                            notificationConfig.smartResumeMode === "compact"
+                              ? "bg-purple-600 text-white border-purple-600 shadow-xs"
+                              : "bg-white dark:bg-gray-800 text-gray-700 dark:text-gray-300 border-purple-200 dark:border-purple-800 hover:bg-purple-50"
+                          }`}
+                        >
+                          📦 Compact
+                        </button>
+                        <button
+                          type="button"
+                          onClick={() =>
+                            setNotificationConfig((prev) => ({ ...prev, smartResumeMode: "custom" }))
+                          }
+                          className={`px-2.5 py-1.5 rounded-lg text-xs font-medium border transition-colors ${
+                            notificationConfig.smartResumeMode === "custom"
+                              ? "bg-purple-600 text-white border-purple-600 shadow-xs"
+                              : "bg-white dark:bg-gray-800 text-gray-700 dark:text-gray-300 border-purple-200 dark:border-purple-800 hover:bg-purple-50"
+                          }`}
+                        >
+                          ✏️ Tùy chỉnh
+                        </button>
+                      </div>
+                      <p className="text-[11px] text-purple-700 dark:text-purple-300 mt-1">
+                        {(notificationConfig.smartResumeMode ?? "smart") === "smart"
+                          ? "⚡ Tự động định hướng: yêu cầu AI tập trung đúng mục tiêu dở dang, không đọc lại file cũ, tiết kiệm 60% reasoning tokens."
+                          : notificationConfig.smartResumeMode === "compact"
+                          ? "📦 Gửi: 'tiếp tục (chỉ xuất code/diff sửa đổi, không giải thích lý thuyết)'"
+                          : "✏️ Sử dụng chính xác nội dung bạn nhập bên dưới."}
+                      </p>
+                    </div>
+
+                    {(notificationConfig.smartResumeMode === "custom") && (
+                      <div>
+                        <label className="block text-xs font-semibold text-purple-900 dark:text-purple-200 mb-1">
+                          Tin nhắn gửi đi khi tiếp tục (Resume Prompt):
+                        </label>
+                        <input
+                          type="text"
+                          value={notificationConfig.resumePrompt ?? "tiếp tục"}
+                          onChange={(e) =>
+                            setNotificationConfig((prev) => ({
+                              ...prev,
+                              resumePrompt: e.target.value,
+                            }))
+                          }
+                          placeholder="tiếp tục"
+                          className="w-full h-9 px-3 rounded-lg border border-purple-300 dark:border-purple-700 bg-white dark:bg-gray-800 text-sm text-gray-900 dark:text-gray-100 placeholder-gray-400 focus:outline-none focus:ring-2 focus:ring-purple-500"
+                        />
+                      </div>
+                    )}
                   </div>
                 )}
               </div>

@@ -259,13 +259,81 @@ async function sendNtfyNotification({ server = "https://ntfy.sh", topic, title, 
   return { ok: true };
 }
 
-// ==================== PASEO ERROR DETECTION & AUTO RESUME ====================
+function generateSmartResumePrompt(agentData = {}, mode = "smart", customPrompt = null) {
+  if (customPrompt && typeof customPrompt === "string" && customPrompt.trim()) {
+    return customPrompt.trim();
+  }
+  const cleanTitle = (agentData?.title || "").replace(/[\r\n\t]+/g, " ").trim();
 
-function detectPaseoQuotaErrors() {
+  if (mode === "compact") {
+    return "tiếp tục (chỉ xuất code/diff sửa đổi, không giải thích lý thuyết)";
+  }
+
+  if (mode === "smart" || !mode) {
+    if (cleanTitle && cleanTitle.length > 3 && cleanTitle !== "Cuộc trò chuyện Paseo") {
+      return `Tập trung hoàn thành tiếp nhiệm vụ: "${cleanTitle}". Chỉ xuất code sửa đổi cần thiết, không giải thích dông dài và không đọc lại các file đã hoàn thành.`;
+    }
+    return "Tập trung hoàn thành tiếp phần việc đang dở. Chỉ chỉnh sửa code cần thiết, không giải thích dài dòng và không đọc lại file cũ.";
+  }
+
+  return "tiếp tục";
+}
+
+function findCodexSessionMetrics(sessionId) {
+  if (!sessionId || !fs.existsSync(SESSIONS_DIR)) return { inputTokens: 0, outputTokens: 0, cachedTokens: 0, reasoningTokens: 0, totalTokens: 0, turns: 0 };
+  try {
+    const today = new Date();
+    // Search last 14 days
+    for (let i = 0; i < 14; i++) {
+      const d = new Date(today.getTime() - i * 86400000);
+      const y = String(d.getFullYear());
+      const m = String(d.getMonth() + 1).padStart(2, "0");
+      const day = String(d.getDate()).padStart(2, "0");
+      const dayDir = path.join(SESSIONS_DIR, y, m, day);
+      if (!fs.existsSync(dayDir)) continue;
+
+      const files = fs.readdirSync(dayDir);
+      const matchFile = files.find((f) => f.includes(sessionId) && f.endsWith(".jsonl"));
+      if (matchFile) {
+        const fullPath = path.join(dayDir, matchFile);
+        const content = fs.readFileSync(fullPath, "utf8");
+        const lines = content.split("\n");
+        let lastUsage = null;
+        let turns = 0;
+        for (const line of lines) {
+          if (!line.includes('"token_count"')) continue;
+          try {
+            const data = JSON.parse(line);
+            if (data.type === "event_msg" && data.payload?.type === "token_count") {
+              const u = data.payload.info?.last_token_usage;
+              if (u) {
+                lastUsage = u;
+                turns++;
+              }
+            }
+          } catch {}
+        }
+        if (lastUsage) {
+          return {
+            inputTokens: lastUsage.input_tokens || 0,
+            outputTokens: lastUsage.output_tokens || 0,
+            cachedTokens: lastUsage.cached_input_tokens || 0,
+            reasoningTokens: lastUsage.reasoning_output_tokens || 0,
+            totalTokens: lastUsage.total_tokens || 0,
+            turns,
+          };
+        }
+      }
+    }
+  } catch {}
+  return { inputTokens: 0, outputTokens: 0, cachedTokens: 0, reasoningTokens: 0, totalTokens: 0, turns: 0 };
+}
+
+function getPaseoTabsAnalytics() {
   const agentsBase = path.join(HOME_DIR, ".paseo", "agents");
   if (!fs.existsSync(agentsBase)) return [];
   const workspaces = fs.readdirSync(agentsBase);
-  const errored = [];
+  const tabs = [];
 
   for (const wks of workspaces) {
     const wksPath = path.join(agentsBase, wks);
@@ -278,30 +346,115 @@ function detectPaseoQuotaErrors() {
         try {
           const stats = fs.statSync(filePath);
           const data = JSON.parse(fs.readFileSync(filePath, "utf8"));
+          if (data.archivedAt) continue; // Skip archived agents
+
+          const sessionId = data.runtimeInfo?.sessionId || data.persistence?.sessionId || null;
+          const metrics = findCodexSessionMetrics(sessionId);
+
           const err = data.lastError || "";
-          if (
+          const hasQuotaError =
             err.includes("usage limit") ||
             err.includes("hit your usage limit") ||
             err.includes("purchase more credits") ||
             err.includes("rate limit") ||
-            err.includes("Quota exceeded")
-          ) {
-            errored.push({
-              id: data.id,
-              title: data.title || "Cuộc trò chuyện Paseo",
-              updatedAt: data.updatedAt,
-              mtime: stats.mtime.getTime(),
-              lastError: err,
-              cwd: data.cwd,
-            });
+            err.includes("Quota exceeded");
+
+          const inputTokens = metrics.inputTokens;
+          const turns = metrics.turns;
+
+          let bloatLevel = "safe"; // <50k tokens
+          if (inputTokens >= 90000 || turns >= 30) {
+            bloatLevel = "danger"; // >90k or >30 turns -> Heavy bloat!
+          } else if (inputTokens >= 50000 || turns >= 18) {
+            bloatLevel = "warning"; // 50k - 90k tokens
           }
+
+          tabs.push({
+            id: data.id,
+            title: data.title || "Cuộc trò chuyện Paseo",
+            cwd: data.cwd || "",
+            workspaceId: data.workspaceId || wks,
+            updatedAt: data.updatedAt || new Date(stats.mtimeMs).toISOString(),
+            mtime: stats.mtimeMs,
+            lastStatus: data.lastStatus || "unknown",
+            hasQuotaError,
+            lastError: err,
+            sessionId,
+            turns,
+            inputTokens,
+            outputTokens: metrics.outputTokens,
+            cachedTokens: metrics.cachedTokens,
+            reasoningTokens: metrics.reasoningTokens,
+            totalTokens: metrics.totalTokens,
+            bloatLevel,
+            isBloated: bloatLevel === "danger" || bloatLevel === "warning",
+            recommendedAction:
+              bloatLevel === "danger"
+                ? "Nên Tách Tab Mới (Tiết kiệm >85% Quota!)"
+                : bloatLevel === "warning"
+                ? "Khuyên dùng Smart Resume"
+                : "Tối ưu",
+          });
         } catch {}
       }
     } catch {}
   }
 
-  errored.sort((a, b) => b.mtime - a.mtime);
-  return errored;
+  tabs.sort((a, b) => b.mtime - a.mtime);
+  return tabs;
+}
+
+async function createPaseoFreshHandoffTab(agentId, promptOverride = null) {
+  const tabs = getPaseoTabsAnalytics();
+  const target = tabs.find((t) => t.id === agentId);
+  if (!target) {
+    throw new Error(`Không tìm thấy tab Paseo có ID: ${agentId}`);
+  }
+
+  const rawTitle = target.title.replace(/\[Tiếp nối\]\s*/g, "").trim();
+  const newTitle = `[Tiếp nối] ${rawTitle || "Tác vụ"}`;
+  const cwd = target.cwd || HOME_DIR;
+
+  const handoffPrompt = promptOverride && promptOverride.trim()
+    ? promptOverride.trim()
+    : `Tiếp nối nhiệm vụ: "${rawTitle}". Hãy phân tích nhanh trạng thái hiện tại của code trong thư mục và hoàn thành các bước tiếp theo. Giữ câu trả lời súc tích, đi thẳng vào code sửa đổi.`;
+
+  console.log(`[PaseoHandoff] Spawning fresh agent for "${newTitle}" in "${cwd}"...`);
+
+  let newAgentId = null;
+  try {
+    const cmd = `"${PASEO_CLI_PATH}" run --cwd "${cwd.replace(/"/g, '\\"')}" --title "${newTitle.replace(/"/g, '\\"')}" -d --json "${handoffPrompt.replace(/"/g, '\\"')}"`;
+    const { stdout } = await execAsync(cmd);
+    try {
+      const parsed = JSON.parse(stdout);
+      newAgentId = parsed.id || parsed.agentId || null;
+    } catch {
+      const match = stdout.match(/([0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12})/i);
+      if (match) newAgentId = match[1];
+    }
+  } catch (err) {
+    throw new Error(`Lỗi tạo tab Paseo mới: ${err.message}`);
+  }
+
+  // Open the newly created agent in Paseo Desktop if agentId obtained
+  if (newAgentId) {
+    try {
+      await execAsync(`"${PASEO_CLI_PATH}" agent open ${newAgentId}`);
+    } catch {}
+  }
+
+  return {
+    ok: true,
+    originalAgentId: agentId,
+    newAgentId,
+    title: newTitle,
+    cwd,
+    prompt: handoffPrompt,
+  };
+}
+
+function detectPaseoQuotaErrors() {
+  return getPaseoTabsAnalytics().filter((t) => t.hasQuotaError);
 }
 
 let lastHandledPaseoErrors = {};
@@ -462,9 +615,10 @@ async function autoResumePaseoTask({ targetAgentId = null, targetAccountId = nul
     if (!agent.id) continue;
     let messageSent = false;
     let sendError = null;
+    const agentPrompt = generateSmartResumePrompt(agent, config.smartResumeMode || "smart", promptMessage);
     try {
-      console.log(`[PaseoAutoResume] Sending prompt "${effectivePrompt}" to agent ${agent.id} (${agent.title || ""})...`);
-      await execAsync(`"${PASEO_CLI_PATH}" send ${agent.id} "${effectivePrompt.replace(/"/g, '\\"')}" --no-wait`);
+      console.log(`[PaseoAutoResume] Sending prompt "${agentPrompt}" to agent ${agent.id} (${agent.title || ""})...`);
+      await execAsync(`"${PASEO_CLI_PATH}" send ${agent.id} "${agentPrompt.replace(/"/g, '\\"')}" --no-wait`);
       messageSent = true;
       console.log(`[PaseoAutoResume] Prompt sent successfully to agent ${agent.id}`);
     } catch (err) {
@@ -472,16 +626,16 @@ async function autoResumePaseoTask({ targetAgentId = null, targetAccountId = nul
       console.error(`[PaseoAutoResume] Failed to send prompt to ${agent.id}:`, err.message);
     }
     lastHandledPaseoErrors[agent.id] = Date.now();
-    results.push({ agent, messageSent, sendError });
+    results.push({ agent, messageSent, sendError, promptSent: agentPrompt });
   }
 
   // 4. Notify via Telegram & ntfy
   if (config.telegram?.enabled && config.telegram?.botToken && config.telegram?.chatId) {
     const resumedListText = results.length > 0
-      ? results.map((r, i) => `${i + 1}. \`${r.agent.title || r.agent.id}\``).join("\n")
+      ? results.map((r, i) => `${i + 1}. \`${r.agent.title || r.agent.id}\`\n   💬 _Prompt:_ "${r.promptSent}"`).join("\n")
       : "_Tất cả các tab_";
 
-    const tgMsg = `🚀 *ĐÃ TỰ ĐỘNG KHÔI PHỤC ${results.length} CUỘC TRÒ CHUYỆN TRÊN PASEO!*\n\n📝 *Các tab được tiếp tục:*\n${resumedListText}\n\n✅ *Tài khoản mới:* \`${switchedTo.name}\` (Còn *${newRemaining.toFixed(0)}%* quota)\n💬 *Tin nhắn gửi đi:* \`${effectivePrompt}\`\n\n👉 _Paseo đang tiếp tục xử lý song song tất cả các tab!_`;
+    const tgMsg = `🚀 *ĐÃ TỰ ĐỘNG KHÔI PHỤC ${results.length} CUỘC TRÒ CHUYỆN TRÊN PASEO (SMART RESUME)!*\n\n📝 *Các tab được tiếp tục:*\n${resumedListText}\n\n✅ *Tài khoản mới:* \`${switchedTo.name}\` (Còn *${newRemaining.toFixed(0)}%* quota)\n\n👉 _Paseo đang tiếp tục xử lý song song tất cả các tab!_`;
 
     await sendTelegramNotification({
       botToken: config.telegram.botToken,
@@ -971,10 +1125,11 @@ async function handleTelegramMessage(msg, botToken, config) {
         inline_keyboard: [
           [
             { text: "📊 Thống kê Token & Quota", callback_data: "token_win:24h" },
-            { text: "🚀 Đổi Acc & Tiếp tục Paseo", callback_data: "cmd_auto_resume_paseo" },
+            { text: "🎯 Quản lý Tabs Paseo", callback_data: "cmd_tabs" },
           ],
           [
-            { text: "🔄 Đổi Acc & Restart Paseo", callback_data: "cmd_auto_switch_restart_paseo" },
+            { text: "🚀 Đổi Acc & Tiếp tục Paseo", callback_data: "cmd_auto_resume_paseo" },
+            { text: "🔄 Đổi Acc & Reload Paseo", callback_data: "cmd_auto_switch_restart_paseo" },
           ],
           [
             { text: "📋 Danh sách tài khoản", callback_data: "cmd_list" },
@@ -1087,7 +1242,13 @@ async function handleTelegramMessage(msg, botToken, config) {
     return;
   }
 
-  // 7. /paseo
+  // 7. /tabs, /paseo_tabs
+  if (lower === "/tabs" || lower === "/paseo_tabs") {
+    await sendPaseoTabsListMessage(botToken, chatId);
+    return;
+  }
+
+  // 8. /paseo
   if (lower === "/paseo") {
     const paseoInfo = await getPaseoProcesses();
     const isRunning = paseoInfo.count > 0;
@@ -1439,10 +1600,99 @@ ${
   }
 }
 
+async function sendPaseoTabsListMessage(botToken, chatId) {
+  try {
+    const tabs = getPaseoTabsAnalytics();
+    if (tabs.length === 0) {
+      await sendTelegramNotification({
+        botToken,
+        chatId,
+        text: "ℹ️ Hiện không có tab Paseo nào đang mở.",
+      });
+      return;
+    }
+
+    let text = `🎯 *DANH SÁCH TAB PASEO & ĐỘ PHÌNH NGỮ CẢNH (CONTEXT)*\n\n`;
+    const inlineButtons = [];
+
+    tabs.slice(0, 6).forEach((tab, index) => {
+      const icon = tab.bloatLevel === "danger" ? "🔴" : tab.bloatLevel === "warning" ? "🟡" : "🟢";
+      const statusNote = tab.hasQuotaError ? " ⚠️ *(Lỗi Quota)*" : "";
+      const shortTitle = tab.title.length > 28 ? tab.title.slice(0, 28) + "..." : tab.title;
+
+      text += `${index + 1}. ${icon} *${shortTitle}*${statusNote}\n`;
+      text += `   • 📊 *Context:* \`${formatTokenCount(tab.inputTokens)}\` (${tab.turns} turns)\n`;
+      text += `   • 💡 _Gợi ý:_ ${tab.recommendedAction}\n\n`;
+
+      const row = [
+        { text: `⚡ Smart Resume #${index + 1}`, callback_data: `resume_tab:${tab.id}` },
+      ];
+      if (tab.isBloated) {
+        row.push({ text: `🌱 Tách Tab Mới #${index + 1}`, callback_data: `handoff_tab:${tab.id}` });
+      }
+      inlineButtons.push(row);
+    });
+
+    inlineButtons.push([
+      { text: "🚀 Tiếp tục tất cả tab lỗi", callback_data: "cmd_auto_resume_paseo" },
+      { text: "📱 Mở Dashboard", url: DASHBOARD_URL },
+    ]);
+
+    await sendTelegramNotification({
+      botToken,
+      chatId,
+      text,
+      replyMarkup: { inline_keyboard: inlineButtons },
+    });
+  } catch (err) {
+    await sendTelegramNotification({
+      botToken,
+      chatId,
+      text: `❌ Lỗi đọc danh sách tab Paseo: ${err.message}`,
+    }).catch(() => {});
+  }
+}
+
 async function handleTelegramCallbackQuery(query, botToken, config) {
   const chatId = query.message?.chat?.id;
   const data = query.data;
   if (!chatId || !data) return;
+
+  if (data.startsWith("handoff_tab:")) {
+    const agentId = data.split(":")[1];
+    await answerTelegramCallbackQuery(botToken, query.id, "Đang tạo tab mới tinh gọn...");
+    try {
+      const res = await createPaseoFreshHandoffTab(agentId);
+      await sendTelegramNotification({
+        botToken,
+        chatId,
+        text: `🌱 *ĐÃ TẠO TAB MỚI TINH GỌN THÀNH CÔNG!* 🚀\n\n📝 *Tiêu đề:* \`${res.title}\`\n📁 *Thư mục:* \`${res.cwd}\`\n\n🎯 *Lợi ích:* Tiết kiệm >85% Quota (Context mới chỉ ~3k-5k tokens thay vì gánh hàng trăm ngàn tokens cũ!).`,
+        replyMarkup: {
+          inline_keyboard: [[{ text: "🎯 Xem danh sách Tabs", callback_data: "cmd_tabs" }]],
+        },
+      });
+    } catch (err) {
+      await sendTelegramNotification({
+        botToken,
+        chatId,
+        text: `❌ Lỗi tạo tab mới: ${err.message}`,
+      });
+    }
+    return;
+  }
+
+  if (data.startsWith("resume_tab:")) {
+    const agentId = data.split(":")[1];
+    await answerTelegramCallbackQuery(botToken, query.id, "Đang gửi Smart Resume...");
+    await performAutoResumePaseoNotify(botToken, chatId, agentId);
+    return;
+  }
+
+  if (data === "cmd_tabs") {
+    await answerTelegramCallbackQuery(botToken, query.id);
+    await sendPaseoTabsListMessage(botToken, chatId);
+    return;
+  }
 
   if (data.startsWith("token_win:")) {
     const winKey = data.split(":")[1] || "24h";
@@ -1860,6 +2110,34 @@ const server = http.createServer(async (req, res) => {
         promptMessage: payload.message || "tiếp tục",
         restartPaseo: Boolean(payload.restartPaseo),
       });
+      res.writeHead(200, { "Content-Type": "application/json" });
+      res.end(JSON.stringify({ ok: true, result }));
+    } catch (err) {
+      res.writeHead(500, { "Content-Type": "application/json" });
+      res.end(JSON.stringify({ error: err.message }));
+    }
+    return;
+  }
+
+  if (url.pathname === "/api/invoke/get_paseo_tabs_analytics") {
+    try {
+      const tabs = getPaseoTabsAnalytics();
+      res.writeHead(200, { "Content-Type": "application/json" });
+      res.end(JSON.stringify({ ok: true, tabs }));
+    } catch (err) {
+      res.writeHead(500, { "Content-Type": "application/json" });
+      res.end(JSON.stringify({ error: err.message }));
+    }
+    return;
+  }
+
+  if (url.pathname === "/api/invoke/create_paseo_fresh_handoff_tab") {
+    try {
+      const payload = await parseRequestBody(req);
+      if (!payload.agentId) {
+        throw new Error("agentId is required");
+      }
+      const result = await createPaseoFreshHandoffTab(payload.agentId, payload.prompt || null);
       res.writeHead(200, { "Content-Type": "application/json" });
       res.end(JSON.stringify({ ok: true, result }));
     } catch (err) {

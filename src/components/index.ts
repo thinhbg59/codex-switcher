@@ -4,4 +4,5 @@ export { AddAccountModal } from "./AddAccountModal";
 export { AccountUsageStats } from "./AccountUsageStats";
 export { UpdateChecker } from "./UpdateChecker";
 export { AnalyticsWidget } from "./AnalyticsWidget";
+export { PaseoTabsManager } from "./PaseoTabsManager";
 
