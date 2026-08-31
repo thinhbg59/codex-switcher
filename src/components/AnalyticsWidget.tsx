@@ -18,11 +18,16 @@ export interface TokenWindowStats {
 
 export interface SystemQuotaOverview {
   totalAccounts: number;
+  totalRemainingPercent: number;
+  totalUsedPercent: number;
+  totalMaxPercent: number;
+  poolRemainingRate: number;
+  avgUsedPercent: number;
+  avgRemainingPercent: number;
   readyCount: number;
   midCount: number;
   highCount: number;
   exhaustedCount: number;
-  avgUsedPercent: number;
   activeAccount: {
     id: string;
     name: string;
@@ -36,6 +41,7 @@ export interface SystemQuotaOverview {
     plan_type?: string;
     is_active: boolean;
     used_percent: number | null;
+    remaining_percent: number | null;
     resets_at: number | null;
   }>;
 }
@@ -343,39 +349,76 @@ export function AnalyticsWidget() {
             </div>
           </div>
 
-          {/* System Quota Overview Bar */}
+          {/* Total Pooled Quota Card */}
           {quotaOverview && (
-            <div className="p-3.5 rounded-xl border border-gray-100 dark:border-gray-800 bg-gray-50/70 dark:bg-gray-800/40 flex flex-wrap items-center justify-between gap-3 text-xs">
-              <div className="flex items-center gap-2">
-                <span className="font-bold text-gray-900 dark:text-white flex items-center gap-1.5">
-                  <span className="w-2 h-2 rounded-full bg-purple-500 animate-pulse"></span>
-                  Tổng quan Quota Hệ Thống:
-                </span>
-                <span className="text-gray-500 dark:text-gray-400">
-                  ({quotaOverview.totalAccounts} tài khoản trong hệ thống)
-                </span>
+            <div className="p-4 rounded-xl border border-indigo-100 dark:border-indigo-900/40 bg-gradient-to-br from-indigo-50/70 via-purple-50/40 to-white dark:from-indigo-950/40 dark:via-purple-950/20 dark:to-gray-800/60 shadow-xs space-y-3">
+              <div className="flex flex-wrap items-center justify-between gap-2">
+                <div className="flex items-center gap-2.5">
+                  <span className="text-xl">🔋</span>
+                  <div>
+                    <div className="flex items-center gap-2">
+                      <span className="text-xs font-bold uppercase tracking-wider text-indigo-900 dark:text-indigo-200">
+                        Tổng Quota Còn Lại Toàn Hệ Thống
+                      </span>
+                      <span className="px-2 py-0.5 rounded-full text-[10px] font-bold bg-indigo-100 dark:bg-indigo-900/60 text-indigo-700 dark:text-indigo-300 border border-indigo-200/50 dark:border-indigo-800/50">
+                        {quotaOverview.poolRemainingRate}% Dung lượng
+                      </span>
+                    </div>
+                    <p className="text-[11px] text-gray-500 dark:text-gray-400">
+                      Tổng cộng dồn % quota còn lại của toàn bộ {quotaOverview.totalAccounts} tài khoản (Mỗi tài khoản 100%)
+                    </p>
+                  </div>
+                </div>
+
+                <div className="text-right">
+                  <div className="flex items-baseline gap-1 justify-end">
+                    <span className="text-2xl font-black text-indigo-600 dark:text-indigo-400 tracking-tight">
+                      {quotaOverview.totalRemainingPercent}%
+                    </span>
+                    <span className="text-sm font-semibold text-gray-500 dark:text-gray-400">
+                      / {quotaOverview.totalMaxPercent}%
+                    </span>
+                  </div>
+                  <span className="text-[11px] font-medium text-gray-500 dark:text-gray-400">
+                    (Đã dùng: {quotaOverview.totalUsedPercent}%)
+                  </span>
+                </div>
               </div>
 
-              <div className="flex flex-wrap items-center gap-2">
-                <span className="inline-flex items-center gap-1 px-2.5 py-1 rounded-lg bg-emerald-100 dark:bg-emerald-900/40 text-emerald-700 dark:text-emerald-300 font-semibold text-[11px] border border-emerald-200/50 dark:border-emerald-800/50">
-                  🟢 {quotaOverview.readyCount} Sẵn sàng (0-20%)
-                </span>
-                <span className="inline-flex items-center gap-1 px-2.5 py-1 rounded-lg bg-blue-100 dark:bg-blue-900/40 text-blue-700 dark:text-blue-300 font-semibold text-[11px] border border-blue-200/50 dark:border-blue-800/50">
-                  🟡 {quotaOverview.midCount} Đang dùng (21-80%)
-                </span>
-                {quotaOverview.highCount > 0 && (
-                  <span className="inline-flex items-center gap-1 px-2.5 py-1 rounded-lg bg-amber-100 dark:bg-amber-900/40 text-amber-700 dark:text-amber-300 font-semibold text-[11px] border border-amber-200/50 dark:border-amber-800/50">
-                    🟠 {quotaOverview.highCount} Sắp hết (81-94%)
+              {/* Progress capacity bar */}
+              <div className="w-full bg-gray-200 dark:bg-gray-700 h-2.5 rounded-full overflow-hidden">
+                <div
+                  className="bg-gradient-to-r from-emerald-500 via-teal-400 to-indigo-500 h-2.5 rounded-full transition-all duration-500 shadow-xs"
+                  style={{ width: `${Math.min(100, Math.max(0, quotaOverview.poolRemainingRate))}%` }}
+                ></div>
+              </div>
+
+              {/* Badges Breakdown */}
+              <div className="flex flex-wrap items-center justify-between gap-2 pt-1 text-xs border-t border-indigo-100/60 dark:border-indigo-900/40">
+                <div className="flex flex-wrap items-center gap-1.5">
+                  <span className="inline-flex items-center gap-1 px-2.5 py-0.5 rounded-md bg-emerald-100 dark:bg-emerald-900/40 text-emerald-700 dark:text-emerald-300 font-semibold text-[11px]">
+                    🟢 {quotaOverview.readyCount} Sẵn sàng 100%
                   </span>
-                )}
-                {quotaOverview.exhaustedCount > 0 && (
-                  <span className="inline-flex items-center gap-1 px-2.5 py-1 rounded-lg bg-red-100 dark:bg-red-900/40 text-red-700 dark:text-red-300 font-semibold text-[11px] border border-red-200/50 dark:border-red-800/50">
-                    🔴 {quotaOverview.exhaustedCount} Hết limit (≥95%)
-                  </span>
-                )}
+                  {quotaOverview.midCount > 0 && (
+                    <span className="inline-flex items-center gap-1 px-2.5 py-0.5 rounded-md bg-blue-100 dark:bg-blue-900/40 text-blue-700 dark:text-blue-300 font-semibold text-[11px]">
+                      🟡 {quotaOverview.midCount} Đang dùng (21-80%)
+                    </span>
+                  )}
+                  {quotaOverview.highCount > 0 && (
+                    <span className="inline-flex items-center gap-1 px-2.5 py-0.5 rounded-md bg-amber-100 dark:bg-amber-900/40 text-amber-700 dark:text-amber-300 font-semibold text-[11px]">
+                      🟠 {quotaOverview.highCount} Sắp hết (81-94%)
+                    </span>
+                  )}
+                  {quotaOverview.exhaustedCount > 0 && (
+                    <span className="inline-flex items-center gap-1 px-2.5 py-0.5 rounded-md bg-red-100 dark:bg-red-900/40 text-red-700 dark:text-red-300 font-semibold text-[11px]">
+                      🔴 {quotaOverview.exhaustedCount} Hết limit (≥95%)
+                    </span>
+                  )}
+                </div>
+
                 {quotaOverview.activeAccount && (
-                  <span className="inline-flex items-center gap-1 px-2.5 py-1 rounded-lg bg-purple-100 dark:bg-purple-900/40 text-purple-700 dark:text-purple-300 font-medium text-[11px] border border-purple-200/50 dark:border-purple-800/50">
-                    ⚡ Active: <strong className="truncate max-w-[120px]">{quotaOverview.activeAccount.name}</strong>
+                  <span className="inline-flex items-center gap-1 text-[11px] text-purple-700 dark:text-purple-300 font-medium">
+                    ⚡ Active: <strong className="truncate max-w-[140px]">{quotaOverview.activeAccount.name}</strong>
                   </span>
                 )}
               </div>

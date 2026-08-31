@@ -719,23 +719,31 @@ async function getSystemQuotaOverview() {
   let exhaustedCount = 0; // >= 95% used
   let sumUsed = 0;
   let validUsageCount = 0;
+  let totalRemainingPercent = 0;
+  let totalUsedPercent = 0;
+  const totalMaxPercent = accounts.length * 100;
 
   const accountsWithUsage = [];
   for (const acc of accounts) {
     let usage = null;
-    let usedPercent = null;
+    let usedPercent = 0;
     try {
       usage = await invokeBackendApi("get_usage", { accountId: acc.id });
       if (typeof usage?.primary_used_percent === "number") {
         usedPercent = usage.primary_used_percent;
-        sumUsed += usedPercent;
-        validUsageCount++;
-        if (usedPercent <= 20) readyCount++;
-        else if (usedPercent <= 80) midCount++;
-        else if (usedPercent < 95) highCount++;
-        else exhaustedCount++;
       }
     } catch {}
+
+    const remainingPercent = Math.max(0, 100 - usedPercent);
+    totalRemainingPercent += remainingPercent;
+    totalUsedPercent += usedPercent;
+    sumUsed += usedPercent;
+    validUsageCount++;
+
+    if (usedPercent <= 20) readyCount++;
+    else if (usedPercent <= 80) midCount++;
+    else if (usedPercent < 95) highCount++;
+    else exhaustedCount++;
 
     accountsWithUsage.push({
       id: acc.id,
@@ -744,19 +752,27 @@ async function getSystemQuotaOverview() {
       plan_type: acc.plan_type,
       is_active: acc.is_active,
       used_percent: usedPercent,
+      remaining_percent: remainingPercent,
       resets_at: usage?.primary_resets_at || null,
     });
   }
 
   const avgUsed = validUsageCount > 0 ? sumUsed / validUsageCount : 0;
+  const avgRemaining = Math.max(0, 100 - avgUsed);
+  const poolRemainingRate = totalMaxPercent > 0 ? (totalRemainingPercent / totalMaxPercent) * 100 : 0;
 
   return {
     totalAccounts: accounts.length,
+    totalRemainingPercent: Math.round(totalRemainingPercent),
+    totalUsedPercent: Math.round(totalUsedPercent),
+    totalMaxPercent,
+    poolRemainingRate: parseFloat(poolRemainingRate.toFixed(1)),
     readyCount,
     midCount,
     highCount,
     exhaustedCount,
     avgUsedPercent: parseFloat(avgUsed.toFixed(1)),
+    avgRemainingPercent: parseFloat(avgRemaining.toFixed(1)),
     activeAccount: active
       ? {
           id: active.id,
@@ -1385,10 +1401,8 @@ async function sendTokenAnalyticsMessage(botToken, chatId, selectedWinKey = "24h
 ${
   quotaOverview
     ? `🌐 *Tổng quan Quota Hệ Thống:*
-• 👥 Tổng tài khoản: *${quotaOverview.totalAccounts}*
-• 🟢 Sẵn sàng (0-20%): *${quotaOverview.readyCount}* acc
-• 🟡 Đang dùng (21-80%): *${quotaOverview.midCount}* acc
-• 🔴 Sắp/Đã hết limit: *${quotaOverview.exhaustedCount}* acc
+• 🔋 *Tổng Quota còn lại:* *${quotaOverview.totalRemainingPercent}%* / ${quotaOverview.totalMaxPercent}% (${quotaOverview.poolRemainingRate}% dung lượng khả dụng)
+• 👥 Tổng tài khoản: *${quotaOverview.totalAccounts}* (${quotaOverview.readyCount} sẵn sàng 100%, ${quotaOverview.exhaustedCount} hết limit)
 • ⚡ Active: \`${quotaOverview.activeAccount?.name || "Chưa chọn"}\``
     : ""
 }
