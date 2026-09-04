@@ -36,6 +36,7 @@ import {
   type AutoWarmupWindow,
   type AutoWarmupWindowKind,
 } from "./lib/autoWarmupPolicy";
+import { useI18n } from "./lib/i18n";
 import "./App.css";
 
 const AUTO_WARMUP_CHECK_INTERVAL_MS = 30 * 1000;
@@ -185,6 +186,8 @@ function App() {
     loadMaskedAccountIds,
     saveMaskedAccountIds,
   } = useAccounts();
+
+  const { lang, toggleLang, t } = useI18n();
 
   const [isAddModalOpen, setIsAddModalOpen] = useState(false);
   const [isConfigModalOpen, setIsConfigModalOpen] = useState(false);
@@ -1655,8 +1658,8 @@ function App() {
                         ></span>
                         <span>
                           {hasRunningProcesses
-                            ? `${processInfo.count} Codex running`
-                            : "0 Codex running"}
+                            ? `${processInfo.count} Codex ${lang === "vi" ? "đang chạy" : "running"}`
+                            : `0 Codex ${lang === "vi" ? "đang chạy" : "running"}`}
                         </span>
                       </span>
                       {hasRunningProcesses && (
@@ -1667,9 +1670,9 @@ function App() {
                           }}
                           disabled={isForceClosingCodex}
                           className="inline-flex items-center rounded-md border border-red-200 bg-red-50 px-2 py-0.5 text-xs font-medium text-red-700 transition-colors hover:bg-red-100 disabled:opacity-50 dark:border-red-800 dark:bg-red-900/20 dark:text-red-300 dark:hover:bg-red-900/30"
-                          title="Force close running Codex processes"
+                          title={t.forceCloseCodex}
                         >
-                          Force close
+                          {t.forceCloseBtn}
                         </button>
                       )}
                       {!hasRunningProcesses && (
@@ -1677,9 +1680,9 @@ function App() {
                           onClick={handleOpenCodexApp}
                           disabled={isOpeningCodex}
                           className="inline-flex items-center rounded-md border border-green-200 bg-green-50 px-2 py-0.5 text-xs font-medium text-green-700 transition-colors hover:bg-green-100 disabled:opacity-50 dark:border-green-800 dark:bg-green-900/20 dark:text-green-300 dark:hover:bg-green-900/30"
-                          title="Open Codex app"
+                          title={t.openCodex}
                         >
-                          {isOpeningCodex ? "Opening..." : "Open Codex"}
+                          {isOpeningCodex ? t.opening : t.openCodex}
                         </button>
                       )}
                     </div>
@@ -1700,25 +1703,25 @@ function App() {
                         ></span>
                         <span>
                           {hasRunningPaseoProcesses
-                            ? `${paseoProcessInfo.count} Paseo running`
-                            : "0 Paseo running"}
+                            ? `${paseoProcessInfo.count} Paseo ${lang === "vi" ? "đang chạy" : "running"}`
+                            : `0 Paseo ${lang === "vi" ? "đang chạy" : "running"}`}
                         </span>
                       </span>
                       <button
                         onClick={() => void handleAutoResumePaseo()}
                         disabled={isAutoResumingPaseo || isSwitchingAndRestartingPaseo || accounts.length <= 1}
                         className="inline-flex items-center gap-1 rounded-md border border-purple-300 bg-purple-50 px-2 py-0.5 text-xs font-semibold text-purple-800 transition-colors hover:bg-purple-100 disabled:opacity-50 dark:border-purple-800 dark:bg-purple-950/40 dark:text-purple-300 dark:hover:bg-purple-900/60 shadow-sm"
-                        title="Đổi sang tài khoản tốt nhất (không cần tắt app), reload cấu hình và gửi 'tiếp tục' vào cuộc trò chuyện vừa hết quota"
+                        title={t.smartResumeAutoTitle}
                       >
-                        <span>{isAutoResumingPaseo ? "⏳ Đang gửi tiếp..." : "🚀 Đổi Acc & Tiếp tục Paseo"}</span>
+                        <span>{isAutoResumingPaseo ? t.resumingPaseo : t.switchAndResumeBtn}</span>
                       </button>
                       <button
                         onClick={() => void handleSwitchAndRestartPaseo()}
                         disabled={isSwitchingAndRestartingPaseo || isAutoResumingPaseo || accounts.length <= 1}
                         className="inline-flex items-center gap-1 rounded-md border border-emerald-300 bg-emerald-50 px-2 py-0.5 text-xs font-semibold text-emerald-800 transition-colors hover:bg-emerald-100 disabled:opacity-50 dark:border-emerald-800 dark:bg-emerald-950/40 dark:text-emerald-300 dark:hover:bg-emerald-900/60 shadow-sm"
-                        title="Tự động đóng Paseo, chuyển sang tài khoản tốt nhất và mở lại Paseo"
+                        title={t.switchAndRestartTitle}
                       >
-                        <span>{isSwitchingAndRestartingPaseo ? "⏳ Đang đổi..." : "🔄 Restart Paseo"}</span>
+                        <span>{isSwitchingAndRestartingPaseo ? t.restartingPaseo : t.switchAndRestartPaseoBtn}</span>
                       </button>
                       {hasRunningPaseoProcesses && (
                         <>
@@ -1726,17 +1729,17 @@ function App() {
                             onClick={handleClosePaseoApp}
                             disabled={isClosingPaseo || isForceClosingPaseo || isSwitchingAndRestartingPaseo}
                             className="inline-flex items-center rounded-md border border-gray-200 bg-gray-50 px-2 py-0.5 text-xs font-medium text-gray-700 transition-colors hover:bg-gray-100 disabled:opacity-50 dark:border-gray-700 dark:bg-gray-800 dark:text-gray-200 dark:hover:bg-gray-700"
-                            title="Close Paseo app gracefully"
+                            title={t.closePaseo}
                           >
-                            {isClosingPaseo ? "Closing..." : "Close"}
+                            {isClosingPaseo ? t.closing : t.closeBtn}
                           </button>
                           <button
                             onClick={() => setPaseoForceCloseConfirmOpen(true)}
                             disabled={isClosingPaseo || isForceClosingPaseo || isSwitchingAndRestartingPaseo}
                             className="inline-flex items-center rounded-md border border-red-200 bg-red-50 px-2 py-0.5 text-xs font-medium text-red-700 transition-colors hover:bg-red-100 disabled:opacity-50 dark:border-red-800 dark:bg-red-900/20 dark:text-red-300 dark:hover:bg-red-900/30"
-                            title="Force close running Paseo processes"
+                            title={t.forceClosePaseo}
                           >
-                            {isForceClosingPaseo ? "Force closing..." : "Force close"}
+                            {isForceClosingPaseo ? t.stopping : t.forceCloseBtn}
                           </button>
                         </>
                       )}
@@ -1745,9 +1748,9 @@ function App() {
                           onClick={handleOpenPaseoApp}
                           disabled={isOpeningPaseo || isSwitchingAndRestartingPaseo}
                           className="inline-flex items-center rounded-md border border-green-200 bg-green-50 px-2 py-0.5 text-xs font-medium text-green-700 transition-colors hover:bg-green-100 disabled:opacity-50 dark:border-green-800 dark:bg-green-900/20 dark:text-green-300 dark:hover:bg-green-900/30"
-                          title="Open Paseo app"
+                          title={t.openPaseo}
                         >
-                          {isOpeningPaseo ? "Opening..." : "Open Paseo"}
+                          {isOpeningPaseo ? t.opening : t.openPaseo}
                         </button>
                       )}
                     </div>
@@ -1757,10 +1760,19 @@ function App() {
             </div>
 
             <div className="flex flex-wrap items-center gap-2 shrink-0 md:ml-4 md:w-max md:flex-nowrap md:justify-end">
+              {/* Language Switcher Toggle */}
+              <button
+                onClick={toggleLang}
+                className="flex h-10 px-2.5 items-center justify-center rounded-lg bg-gray-100 text-gray-700 text-xs font-bold transition-colors hover:bg-gray-200 dark:bg-gray-800 dark:text-gray-200 dark:hover:bg-gray-700 shrink-0 cursor-pointer shadow-xs"
+                title={lang === "vi" ? "Switch to English" : "Chuyển sang Tiếng Việt"}
+              >
+                🌐 {lang.toUpperCase()}
+              </button>
+
               <button
                 onClick={toggleMaskAll}
                 className="flex h-10 w-10 items-center justify-center rounded-lg bg-gray-100 text-gray-700 transition-colors hover:bg-gray-200 dark:bg-gray-800 dark:text-gray-200 dark:hover:bg-gray-700 shrink-0"
-                title={allMasked ? "Show all account names and emails" : "Hide all account names and emails"}
+                title={allMasked ? t.maskShowAll : t.maskHideAll}
               >
                 {allMasked ? (
                   <svg className="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24">
@@ -1782,7 +1794,7 @@ function App() {
                 onClick={handleRefresh}
                 disabled={isRefreshing}
                 className="flex h-10 w-10 items-center justify-center rounded-lg bg-gray-100 text-gray-700 transition-colors hover:bg-gray-200 disabled:opacity-50 dark:bg-gray-800 dark:text-gray-200 dark:hover:bg-gray-700 shrink-0"
-                title={isRefreshing ? "Refreshing all usage" : "Refresh all usage"}
+                title={isRefreshing ? t.refreshingUsage : t.refreshAllUsage}
               >
                 <span className={isRefreshing ? "animate-spin inline-block" : ""}>↻</span>
               </button>
@@ -1794,7 +1806,7 @@ function App() {
                     ? "bg-amber-100 text-amber-500 dark:bg-amber-900/30 dark:text-amber-300"
                     : "bg-amber-50 text-amber-700 hover:bg-amber-100 dark:bg-amber-900/20 dark:text-amber-300 dark:hover:bg-amber-900/40"
                 }`}
-                title={isWarmingAll ? "Warming up all accounts" : "Warm up all accounts"}
+                title={isWarmingAll ? t.warmingUpAll : t.warmUpAll}
               >
                 <span className={isWarmingAll ? "animate-pulse" : ""}>⚡</span>
               </button>
@@ -1811,7 +1823,7 @@ function App() {
                       ? "bg-gray-900 text-white hover:bg-gray-800 dark:bg-black dark:text-white dark:hover:bg-neutral-900"
                       : "bg-gray-100 text-gray-700 hover:bg-gray-200 dark:bg-gray-800 dark:text-gray-200 dark:hover:bg-gray-700"
                   }`}
-                  title={isAccountSearchOpen ? "Hide account search" : "Search accounts"}
+                  title={isAccountSearchOpen ? t.hideSearch : t.searchAccounts}
                 >
                   <svg className="h-4 w-4" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2">
                     <circle cx="11" cy="11" r="7" />
@@ -1831,7 +1843,7 @@ function App() {
                       ? "bg-gray-900 text-white hover:bg-gray-800 dark:bg-black dark:text-white dark:hover:bg-neutral-900"
                       : "bg-gray-100 text-gray-700 hover:bg-gray-200 dark:bg-gray-800 dark:text-gray-200 dark:hover:bg-gray-700"
                   }`}
-                  title="Menu"
+                  title={t.menu}
                 >
                   <svg className="h-4 w-4" viewBox="0 0 24 24" fill="currentColor">
                     <circle cx="12" cy="5" r="1.6" />
@@ -1849,7 +1861,7 @@ function App() {
                       disabled={accounts.length === 0}
                       className="flex w-full items-center justify-between gap-2 rounded-lg px-3 py-2 text-left text-sm transition-colors hover:bg-gray-100 disabled:opacity-50 dark:text-white dark:hover:bg-neutral-900"
                     >
-                      <span>Auto Warm Up</span>
+                      <span>{t.autoWarmUp}</span>
                       <span
                         className={`rounded-md px-1.5 py-0.5 text-[11px] font-medium ${
                           autoWarmupAllEnabled
@@ -1867,7 +1879,7 @@ function App() {
                       }}
                       className="flex w-full items-center justify-between gap-2 rounded-lg px-3 py-2 text-left text-sm transition-colors hover:bg-gray-100 dark:text-white dark:hover:bg-neutral-900"
                     >
-                      <span>Timer</span>
+                      <span>{t.timer}</span>
                       <span
                         className={`rounded-md px-1.5 py-0.5 text-[11px] font-medium ${
                           timedWarmupEnabled
@@ -1885,7 +1897,7 @@ function App() {
                       }}
                       className="flex w-full items-center justify-between gap-2 rounded-lg px-3 py-2 text-left text-sm transition-colors hover:bg-gray-100 dark:text-white dark:hover:bg-neutral-900"
                     >
-                      <span>Notifications</span>
+                      <span>{t.notifications}</span>
                       <span
                         className={`rounded-md px-1.5 py-0.5 text-[11px] font-medium ${
                           notificationConfig.telegram.enabled || notificationConfig.ntfy.enabled
@@ -1897,7 +1909,19 @@ function App() {
                           ? "Telegram: On"
                           : notificationConfig.ntfy.enabled
                           ? "ntfy: On"
-                          : "Off"}
+                          : t.off}
+                      </span>
+                    </button>
+                    <button
+                      onClick={() => {
+                        setIsNavMenuOpen(false);
+                        toggleLang();
+                      }}
+                      className="flex w-full items-center justify-between gap-2 rounded-lg px-3 py-2 text-left text-sm transition-colors hover:bg-gray-100 dark:text-white dark:hover:bg-neutral-900"
+                    >
+                      <span>{t.language}</span>
+                      <span className="text-[11px] font-medium text-gray-500 dark:text-gray-400">
+                        {lang === "vi" ? "Tiếng Việt" : "English"}
                       </span>
                     </button>
                     <button
@@ -1907,9 +1931,9 @@ function App() {
                       }}
                       className="flex w-full items-center justify-between gap-2 rounded-lg px-3 py-2 text-left text-sm transition-colors hover:bg-gray-100 dark:text-white dark:hover:bg-neutral-900"
                     >
-                      <span>Appearance</span>
+                      <span>{t.appearance}</span>
                       <span className="text-[11px] text-gray-400 dark:text-gray-500">
-                        {themeMode === "dark" ? "☾ Dark" : "☀ Light"}
+                        {themeMode === "dark" ? t.themeDark : t.themeLight}
                       </span>
                     </button>
                   </div>
@@ -1917,7 +1941,7 @@ function App() {
                 {isTimedWarmupOpen && (
                   <div className="absolute right-0 z-20 mt-2 w-64 rounded-lg border border-gray-200 bg-white p-3 shadow-lg dark:border-gray-700 dark:bg-gray-900">
                     <label className="flex items-center justify-between text-sm font-medium text-gray-800 dark:text-gray-100">
-                      <span>Timed warm-up</span>
+                      <span>{t.timedWarmUp}</span>
                       <input
                         type="checkbox"
                         checked={timedWarmupEnabled}
@@ -1928,7 +1952,7 @@ function App() {
                     <div className="mt-3 space-y-1">
                       {timedWarmupTimes.length === 0 ? (
                         <p className="text-xs italic text-gray-400 dark:text-gray-500">
-                          No times added yet.
+                          {t.noTimesAdded}
                         </p>
                       ) : (
                         timedWarmupTimes.map((time) => (
@@ -1966,7 +1990,7 @@ function App() {
                         disabled={!timedWarmupDraft}
                         className="h-8 rounded-md bg-gray-900 px-3 text-xs font-semibold text-white transition-colors hover:bg-gray-800 disabled:opacity-50 dark:bg-black dark:hover:bg-neutral-900"
                       >
-                        Add
+                        {t.addTime}
                       </button>
                     </div>
                   </div>
@@ -1975,9 +1999,9 @@ function App() {
               <div className="relative" ref={actionsMenuRef}>
                 <button
                   onClick={() => setIsActionsMenuOpen((prev) => !prev)}
-                  className="h-10 px-4 py-2 text-sm font-medium rounded-lg bg-gray-900 text-white transition-colors hover:bg-gray-800 dark:bg-black dark:hover:bg-neutral-900 shrink-0 whitespace-nowrap"
+                  className="h-10 px-4 py-2 text-sm font-medium rounded-lg bg-gray-900 text-white transition-colors hover:bg-gray-800 dark:bg-black dark:hover:bg-neutral-900 shrink-0 whitespace-nowrap cursor-pointer shadow-xs"
                 >
-                  Account ▾
+                  {t.accountMenu} ▾
                 </button>
                 {isActionsMenuOpen && (
                   <div className="absolute right-0 z-50 mt-2 w-56 rounded-xl border border-gray-200 bg-white p-2 text-gray-700 shadow-xl dark:border-neutral-800 dark:bg-black dark:text-white">
@@ -1988,7 +2012,7 @@ function App() {
                       }}
                       className="w-full rounded-lg px-3 py-2 text-left text-sm transition-colors hover:bg-gray-100 dark:text-white dark:hover:bg-neutral-900"
                     >
-                      + Add Account
+                      + {t.addAccount}
                     </button>
                     <button
                       onClick={() => {
@@ -1998,7 +2022,7 @@ function App() {
                       disabled={isExportingSlim}
                       className="w-full rounded-lg px-3 py-2 text-left text-sm transition-colors hover:bg-gray-100 disabled:opacity-50 dark:text-white dark:hover:bg-neutral-900"
                     >
-                      {isExportingSlim ? "Exporting..." : "Export Slim Text"}
+                      {isExportingSlim ? t.generating : t.exportSlimText}
                     </button>
                     <button
                       onClick={() => {
@@ -2008,7 +2032,7 @@ function App() {
                       disabled={isImportingSlim}
                       className="w-full rounded-lg px-3 py-2 text-left text-sm transition-colors hover:bg-gray-100 disabled:opacity-50 dark:text-white dark:hover:bg-neutral-900"
                     >
-                      {isImportingSlim ? "Importing..." : "Import Slim Text"}
+                      {isImportingSlim ? t.importing : t.importSlimText}
                     </button>
                     <button
                       onClick={() => {
@@ -2018,7 +2042,7 @@ function App() {
                       disabled={isExportingFull}
                       className="w-full rounded-lg px-3 py-2 text-left text-sm transition-colors hover:bg-gray-100 disabled:opacity-50 dark:text-white dark:hover:bg-neutral-900"
                     >
-                      {isExportingFull ? "Exporting..." : "Export Full Encrypted File"}
+                      {isExportingFull ? t.generating : t.exportFullEncrypted}
                     </button>
                     <button
                       onClick={() => {
@@ -2028,7 +2052,7 @@ function App() {
                       disabled={isImportingFull}
                       className="w-full rounded-lg px-3 py-2 text-left text-sm transition-colors hover:bg-gray-100 disabled:opacity-50 dark:text-white dark:hover:bg-neutral-900"
                     >
-                      {isImportingFull ? "Importing..." : "Import Full Encrypted File"}
+                      {isImportingFull ? t.importing : t.importFullEncrypted}
                     </button>
                   </div>
                 )}
@@ -2052,7 +2076,7 @@ function App() {
               }`}
             >
               <span>👥</span>
-              <span>Dashboard Tài Khoản</span>
+              <span>{t.topRouteAccounts}</span>
             </button>
             <button
               onClick={() => navigateToView("paseo_tabs")}
@@ -2063,7 +2087,7 @@ function App() {
               }`}
             >
               <span>🎯</span>
-              <span>Quản Lý Paseo (Project & Tabs)</span>
+              <span>{t.topRoutePaseo}</span>
             </button>
           </div>
 
@@ -2096,16 +2120,16 @@ function App() {
               <span className="text-3xl">👤</span>
             </div>
             <h2 className="text-xl font-semibold text-gray-900 dark:text-gray-100 mb-2">
-              No accounts yet
+              {t.noAccountsYet}
             </h2>
             <p className="text-gray-500 dark:text-gray-400 mb-6">
-              Add your first Codex account to get started
+              {t.addFirstAccount}
             </p>
             <button
               onClick={() => setIsAddModalOpen(true)}
               className="px-6 py-3 text-sm font-medium rounded-lg bg-gray-900 hover:bg-gray-800 dark:bg-gray-100 dark:hover:bg-gray-200 text-white dark:text-gray-900 transition-colors"
             >
-              Add Account
+              {t.addAccount}
             </button>
           </div>
         ) : (
@@ -2113,10 +2137,10 @@ function App() {
             {hasNoMatchingAccounts && (
               <div className="rounded-2xl border border-dashed border-gray-300 px-6 py-12 text-center dark:border-gray-700">
                 <h2 className="text-base font-semibold text-gray-900 dark:text-gray-100">
-                  No matching accounts
+                  {t.noMatchingAccounts}
                 </h2>
                 <p className="mt-1 text-sm text-gray-500 dark:text-gray-400">
-                  Try a different account name or email address.
+                  {t.tryDifferentSearch}
                 </p>
               </div>
             )}
@@ -2140,8 +2164,8 @@ function App() {
                   type="search"
                   value={accountSearchQuery}
                   onChange={(event) => setAccountSearchQuery(event.target.value)}
-                  placeholder="Search accounts by name or email"
-                  aria-label="Search accounts"
+                  placeholder={t.searchPlaceholder}
+                  aria-label={t.searchAccounts}
                   autoFocus
                   className="w-full rounded-xl border border-gray-300 bg-white py-2.5 pl-10 pr-10 text-sm text-gray-900 shadow-sm transition-colors placeholder:text-gray-400 focus:border-gray-400 focus:outline-none focus:ring-2 focus:ring-gray-200 dark:border-gray-700 dark:bg-gray-900 dark:text-gray-100 dark:placeholder:text-gray-500 dark:focus:border-gray-600 dark:focus:ring-gray-800"
                 />
@@ -2177,7 +2201,7 @@ function App() {
               matchesAccountSearch(activeAccount, normalizedAccountSearchQuery) && (
                 <section>
                   <h2 className="text-sm font-medium text-gray-500 dark:text-gray-400 uppercase tracking-wider mb-4">
-                    Active Account
+                    {t.activeAccountHeading}
                   </h2>
                   <AccountCard
                     account={activeAccount}
@@ -2218,7 +2242,7 @@ function App() {
               <section>
                 <div className="flex items-center justify-between gap-3 mb-4">
                   <h2 className="text-sm font-medium text-gray-500 dark:text-gray-400 uppercase tracking-wider">
-                    Other Accounts ({
+                    {t.otherAccountsLabel} ({
                       normalizedAccountSearchQuery
                         ? `${visibleOtherAccounts.length} of ${otherAccounts.length}`
                         : otherAccounts.length
@@ -2226,7 +2250,7 @@ function App() {
                   </h2>
                   <div className="flex items-center gap-2">
                     <label htmlFor="other-accounts-sort" className="text-xs text-gray-500 dark:text-gray-400">
-                      Sort
+                      {t.sortLabel}
                     </label>
                     <div className="relative">
                       <select
@@ -2245,20 +2269,12 @@ function App() {
                         }
                         className="appearance-none font-sans text-xs sm:text-sm font-medium pl-3 pr-9 py-2 rounded-xl border border-gray-300 dark:border-gray-700 bg-gradient-to-b from-white to-gray-50 dark:from-gray-900 dark:to-gray-800 text-gray-700 dark:text-gray-200 shadow-sm hover:border-gray-400 dark:hover:border-gray-600 hover:shadow focus:outline-none focus:ring-2 focus:ring-gray-300 dark:focus:ring-gray-600 focus:border-gray-400 dark:focus:border-gray-600 transition-all"
                       >
-                        <option value="deadline_asc">Reset: earliest to latest</option>
-                        <option value="deadline_desc">Reset: latest to earliest</option>
-                        <option value="remaining_desc">
-                          % remaining: highest to lowest
-                        </option>
-                        <option value="remaining_asc">
-                          % remaining: lowest to highest
-                        </option>
-                        <option value="subscription_asc">
-                          Expiry: earliest to latest
-                        </option>
-                        <option value="subscription_desc">
-                          Expiry: latest to earliest
-                        </option>
+                        <option value="deadline_asc">{t.sortDeadlineAsc}</option>
+                        <option value="deadline_desc">{t.sortDeadlineDesc}</option>
+                        <option value="remaining_desc">{t.sortRemainingDesc}</option>
+                        <option value="remaining_asc">{t.sortRemainingAsc}</option>
+                        <option value="subscription_asc">{t.sortSubscriptionAsc}</option>
+                        <option value="subscription_desc">{t.sortSubscriptionDesc}</option>
                       </select>
                       <span className="pointer-events-none absolute inset-y-0 right-3 flex items-center text-gray-500 dark:text-gray-400">
                         <svg
@@ -2318,7 +2334,7 @@ function App() {
       {/* Refresh Success Toast */}
       {refreshSuccess && (
         <div className="fixed bottom-6 left-1/2 -translate-x-1/2 px-4 py-3 bg-green-600 text-white rounded-lg shadow-lg text-sm flex items-center gap-2">
-          <span>✓</span> Usage refreshed successfully
+          <span>✓</span> {t.usageRefreshedSuccess}
         </div>
       )}
 
@@ -2338,7 +2354,7 @@ function App() {
       {/* Delete Confirmation Toast */}
       {deleteConfirmId && (
         <div className="fixed bottom-6 left-1/2 -translate-x-1/2 px-4 py-3 bg-red-600 text-white rounded-lg shadow-lg text-sm">
-          Click delete again to confirm removal
+          {t.clickDeleteAgainToConfirm}
         </div>
       )}
 
@@ -2347,18 +2363,18 @@ function App() {
           <div className="bg-white dark:bg-gray-900 border border-gray-200 dark:border-gray-700 rounded-2xl w-full max-w-md mx-4 shadow-xl">
             <div className="p-5 border-b border-gray-100 dark:border-gray-800">
               <h2 className="text-lg font-semibold text-gray-900 dark:text-gray-100">
-                Force close running Codex processes?
+                {t.forceCloseCodexPromptTitle}
               </h2>
             </div>
             <div className="p-5 space-y-3">
               <p className="text-sm text-gray-600 dark:text-gray-300">
-                This will force close {processInfo?.count ?? 0} Codex process
-                {(processInfo?.count ?? 0) === 1 ? "" : "es"} that currently
-                block account switching.
+                {lang === "vi"
+                  ? `Thao tác này sẽ buộc dừng ${processInfo?.count ?? 0} tiến trình Codex đang chặn việc đổi tài khoản.`
+                  : `This will force close ${processInfo?.count ?? 0} Codex process${(processInfo?.count ?? 0) === 1 ? "" : "es"} that currently block account switching.`}
               </p>
               {pendingTraySwitchAccount && (
                 <p className="text-sm text-gray-600 dark:text-gray-300">
-                  After closing Codex, Codex Switcher will switch to{" "}
+                  {lang === "vi" ? "Sau khi đóng Codex, Codex Switcher sẽ chuyển sang" : "After closing Codex, Codex Switcher will switch to"}{" "}
                   <span className="font-medium text-gray-900 dark:text-gray-100">
                     {pendingTraySwitchAccount.name}
                   </span>
@@ -2366,7 +2382,7 @@ function App() {
                 </p>
               )}
               <p className="text-sm text-red-600 dark:text-red-300">
-                Unsaved Codex work may be lost.
+                {t.unsavedWorkLost}
               </p>
             </div>
             <div className="flex justify-end gap-3 p-5 border-t border-gray-100 dark:border-gray-800">
@@ -2378,7 +2394,7 @@ function App() {
                 disabled={isForceClosingCodex}
                 className="px-4 py-2.5 text-sm font-medium rounded-lg bg-gray-100 hover:bg-gray-200 dark:bg-gray-800 dark:hover:bg-gray-700 text-gray-700 dark:text-gray-200 transition-colors disabled:opacity-50"
               >
-                Cancel
+                {t.cancelBtn}
               </button>
               <button
                 onClick={() => {
@@ -2388,7 +2404,7 @@ function App() {
                 className="px-4 py-2.5 text-sm font-medium rounded-lg bg-red-600 hover:bg-red-700 text-white transition-colors disabled:opacity-50"
               >
                 {isForceClosingCodex
-                  ? "Force closing..."
+                  ? t.stopping
                   : forceCloseConfirmLabel}
               </button>
             </div>
@@ -2401,16 +2417,17 @@ function App() {
           <div className="bg-white dark:bg-gray-900 border border-gray-200 dark:border-gray-700 rounded-2xl w-full max-w-md mx-4 shadow-xl">
             <div className="p-5 border-b border-gray-100 dark:border-gray-800">
               <h2 className="text-lg font-semibold text-gray-900 dark:text-gray-100">
-                Force close running Paseo processes?
+                {t.forceClosePaseoPromptTitle}
               </h2>
             </div>
             <div className="p-5 space-y-3">
               <p className="text-sm text-gray-600 dark:text-gray-300">
-                This will force close {paseoProcessInfo?.count ?? 0} running Paseo process
-                {(paseoProcessInfo?.count ?? 0) === 1 ? "" : "es"}.
+                {lang === "vi"
+                  ? `Thao tác này sẽ buộc dừng ${paseoProcessInfo?.count ?? 0} tiến trình Paseo đang chạy.`
+                  : `This will force close ${paseoProcessInfo?.count ?? 0} running Paseo process${(paseoProcessInfo?.count ?? 0) === 1 ? "" : "es"}.`}
               </p>
               <p className="text-sm text-red-600 dark:text-red-300">
-                Unsaved Paseo work may be lost.
+                {t.unsavedWorkLost}
               </p>
             </div>
             <div className="flex justify-end gap-3 p-5 border-t border-gray-100 dark:border-gray-800">
@@ -2419,14 +2436,14 @@ function App() {
                 disabled={isForceClosingPaseo}
                 className="px-4 py-2.5 text-sm font-medium rounded-lg bg-gray-100 hover:bg-gray-200 dark:bg-gray-800 dark:hover:bg-gray-700 text-gray-700 dark:text-gray-200 transition-colors disabled:opacity-50"
               >
-                Cancel
+                {t.cancelBtn}
               </button>
               <button
                 onClick={() => void handleForceClosePaseo()}
                 disabled={isForceClosingPaseo}
                 className="px-4 py-2.5 text-sm font-medium rounded-lg bg-red-600 hover:bg-red-700 text-white transition-colors disabled:opacity-50"
               >
-                {isForceClosingPaseo ? "Force closing..." : "Force close Paseo"}
+                {isForceClosingPaseo ? t.stopping : t.forceClosePaseo}
               </button>
             </div>
           </div>
@@ -2439,10 +2456,10 @@ function App() {
             <div className="p-5 border-b border-gray-100 dark:border-gray-800 flex items-center justify-between">
               <div>
                 <h2 className="text-lg font-semibold text-gray-900 dark:text-gray-100 flex items-center gap-2">
-                  <span>🔔</span> Cài đặt thông báo hạn mức
+                  <span>🔔</span> {t.notificationSettingsTitle}
                 </h2>
                 <p className="text-xs text-gray-500 dark:text-gray-400 mt-0.5">
-                  Nhận cảnh báo qua Telegram hoặc ntfy khi tài khoản active sắp hết hạn mức
+                  {t.notificationSettingsSubtitle}
                 </p>
               </div>
               <button
@@ -2458,8 +2475,8 @@ function App() {
               <div className="border border-gray-200 dark:border-gray-700 rounded-xl p-4 space-y-3 bg-gray-50/50 dark:bg-gray-800/30">
                 <div className="flex items-center justify-between">
                   <div className="flex items-center gap-2">
-                    <span className="text-blue-500 font-bold text-base">✈️ Telegram Bot</span>
-                    <span className="text-[11px] bg-blue-100 text-blue-700 dark:bg-blue-900/40 dark:text-blue-300 px-2 py-0.5 rounded-full font-medium">Khuyên dùng</span>
+                    <span className="text-blue-500 font-bold text-base">✈️ {t.telegramSettings}</span>
+                    <span className="text-[11px] bg-blue-100 text-blue-700 dark:bg-blue-900/40 dark:text-blue-300 px-2 py-0.5 rounded-full font-medium">{t.recommendedBadge}</span>
                   </div>
                   <label className="relative inline-flex items-center cursor-pointer">
                     <input
@@ -2480,7 +2497,7 @@ function App() {
                 <div className="space-y-3">
                   <div>
                     <label className="block text-xs font-medium text-gray-700 dark:text-gray-300 mb-1">
-                      Bot Token
+                      {t.telegramBotToken}
                     </label>
                     <input
                       type="text"
@@ -2495,28 +2512,32 @@ function App() {
                       className="w-full h-8 px-3 rounded-lg border border-gray-300 dark:border-gray-600 bg-white dark:bg-gray-800 text-xs font-mono text-gray-900 dark:text-gray-100 focus:outline-none focus:border-blue-500"
                     />
                     <p className="text-[11px] text-gray-400 dark:text-gray-500 mt-1">
-                      Lấy từ <a href="https://t.me/BotFather" target="_blank" rel="noreferrer" className="text-blue-500 underline">@BotFather</a> khi tạo bot mới.
+                      {lang === "vi" ? (
+                        <>Lấy từ <a href="https://t.me/BotFather" target="_blank" rel="noreferrer" className="text-blue-500 underline">@BotFather</a> khi tạo bot mới.</>
+                      ) : (
+                        <>Get from <a href="https://t.me/BotFather" target="_blank" rel="noreferrer" className="text-blue-500 underline">@BotFather</a> when creating a new bot.</>
+                      )}
                     </p>
                   </div>
 
                   <div>
                     <div className="flex items-center justify-between mb-1">
                       <label className="text-xs font-medium text-gray-700 dark:text-gray-300">
-                        Chat ID
+                        {t.telegramChatId}
                       </label>
                       <button
                         type="button"
                         onClick={handleAutoDetectChatId}
                         disabled={isDetectingChatId || !notificationConfig.telegram.botToken}
                         className="text-[11px] text-blue-600 hover:text-blue-700 dark:text-blue-400 font-medium flex items-center gap-1 disabled:opacity-50"
-                        title="Tự động lấy Chat ID từ tin nhắn mới nhất bạn gửi cho Bot"
+                        title={t.telegramGetChatIdHint}
                       >
-                        {isDetectingChatId ? "Đang tìm..." : "🔍 Tự động lấy Chat ID"}
+                        {isDetectingChatId ? t.detectingChatId : t.detectChatId}
                       </button>
                     </div>
                     <input
                       type="text"
-                      placeholder="Nhập ID hoặc bấm 'Tự động lấy Chat ID'"
+                      placeholder={lang === "vi" ? "Nhập ID hoặc bấm 'Tự động lấy Chat ID'" : "Enter Chat ID or click 'Detect Chat ID'"}
                       value={notificationConfig.telegram.chatId}
                       onChange={(e) =>
                         setNotificationConfig((prev) => ({
@@ -2527,10 +2548,10 @@ function App() {
                       className="w-full h-8 px-3 rounded-lg border border-gray-300 dark:border-gray-600 bg-white dark:bg-gray-800 text-xs font-mono text-gray-900 dark:text-gray-100 focus:outline-none focus:border-blue-500"
                     />
                     <div className="mt-1.5 p-2 rounded-lg bg-blue-50/70 dark:bg-blue-950/30 border border-blue-100 dark:border-blue-900 text-[11px] text-blue-800 dark:text-blue-300 space-y-1">
-                      <p className="font-semibold">💡 Cách lấy Chat ID dễ nhất:</p>
-                      <p>1. Mở Bot vừa tạo trên Telegram và bấm <b>START</b> (hoặc gửi <code>/start</code>).</p>
-                      <p>2. Bấm nút <b>"🔍 Tự động lấy Chat ID"</b> ở trên để hệ thống tự điền ID cho bạn!</p>
-                      <p className="text-[10px] text-gray-500 dark:text-gray-400"><i>(Lưu ý: ID dạng 888111... trong idbot là ID của con Bot, Chat ID gửi tin nhắn phải là ID cá nhân của bạn).</i></p>
+                      <p className="font-semibold">{t.chatIdEasyGuideTitle}</p>
+                      <p>{t.chatIdEasyGuideStep1}</p>
+                      <p>{t.chatIdEasyGuideStep2}</p>
+                      <p className="text-[10px] text-gray-500 dark:text-gray-400"><i>{t.chatIdEasyGuideNote}</i></p>
                     </div>
                   </div>
 
@@ -2540,7 +2561,7 @@ function App() {
                       disabled={isTestingTelegram || !notificationConfig.telegram.botToken || !notificationConfig.telegram.chatId}
                       className="px-3 py-1.5 rounded-lg bg-blue-50 text-blue-700 hover:bg-blue-100 dark:bg-blue-900/30 dark:text-blue-300 dark:hover:bg-blue-900/50 border border-blue-200 dark:border-blue-800 text-xs font-medium transition-colors disabled:opacity-50"
                     >
-                      {isTestingTelegram ? "Đang gửi thử..." : "✈️ Gửi tin nhắn thử (Test)"}
+                      {isTestingTelegram ? t.testSending : t.testTelegramBtn}
                     </button>
                   </div>
                 </div>
@@ -2550,7 +2571,7 @@ function App() {
               <div className="border border-gray-200 dark:border-gray-700 rounded-xl p-4 space-y-3 bg-gray-50/50 dark:bg-gray-800/30">
                 <div className="flex items-center justify-between">
                   <div className="flex items-center gap-2">
-                    <span className="text-purple-600 font-bold text-base">📡 ntfy.sh</span>
+                    <span className="text-purple-600 font-bold text-base">{t.ntfySettings}</span>
                   </div>
                   <label className="relative inline-flex items-center cursor-pointer">
                     <input
@@ -2571,11 +2592,11 @@ function App() {
                 <div className="space-y-3">
                   <div>
                     <label className="block text-xs font-medium text-gray-700 dark:text-gray-300 mb-1">
-                      Topic
+                      {t.ntfyTopic}
                     </label>
                     <input
                       type="text"
-                      placeholder="codex_alerts_myname"
+                      placeholder={t.ntfyTopicPlaceholder}
                       value={notificationConfig.ntfy.topic}
                       onChange={(e) =>
                         setNotificationConfig((prev) => ({
@@ -2589,7 +2610,7 @@ function App() {
 
                   <div>
                     <label className="block text-xs font-medium text-gray-700 dark:text-gray-300 mb-1">
-                      Server URL
+                      {t.ntfyServer}
                     </label>
                     <input
                       type="text"
@@ -2611,7 +2632,7 @@ function App() {
                       disabled={isTestingNtfy || !notificationConfig.ntfy.topic}
                       className="px-3 py-1.5 rounded-lg bg-purple-50 text-purple-700 hover:bg-purple-100 dark:bg-purple-900/30 dark:text-purple-300 dark:hover:bg-purple-900/50 border border-purple-200 dark:border-purple-800 text-xs font-medium transition-colors disabled:opacity-50"
                     >
-                      {isTestingNtfy ? "Đang gửi thử..." : "📡 Gửi thử ntfy"}
+                      {isTestingNtfy ? t.testSending : t.testNtfyBtn}
                     </button>
                   </div>
                 </div>
@@ -2620,12 +2641,12 @@ function App() {
               {/* Alert Conditions */}
               <div className="border border-gray-200 dark:border-gray-700 rounded-xl p-4 space-y-3">
                 <h3 className="text-xs font-semibold uppercase tracking-wider text-gray-500 dark:text-gray-400">
-                  Điều kiện cảnh báo
+                  {t.alertThresholdTitle}
                 </h3>
                 <div className="grid grid-cols-1 sm:grid-cols-2 gap-4">
                   <div>
                     <label className="block text-xs font-medium text-gray-700 dark:text-gray-300 mb-1">
-                      Báo khi đã dùng đến:
+                      {t.alertThresholdLabel}
                     </label>
                     <select
                       value={notificationConfig.threshold}
@@ -2637,17 +2658,17 @@ function App() {
                       }
                       className="w-full h-9 px-3 rounded-lg border border-gray-300 dark:border-gray-600 bg-white dark:bg-gray-800 text-sm text-gray-900 dark:text-gray-100"
                     >
-                      <option value={70}>70% (Còn lại 30%)</option>
-                      <option value={75}>75% (Còn lại 25%)</option>
-                      <option value={80}>80% (Còn lại 20%) - Khuyên dùng</option>
-                      <option value={85}>85% (Còn lại 15%)</option>
-                      <option value={90}>90% (Còn lại 10%)</option>
+                      <option value={70}>70% ({lang === "vi" ? "Còn lại 30%" : "30% remaining"})</option>
+                      <option value={75}>75% ({lang === "vi" ? "Còn lại 25%" : "25% remaining"})</option>
+                      <option value={80}>80% ({lang === "vi" ? "Còn lại 20% - Khuyên dùng" : "20% remaining - Recommended"})</option>
+                      <option value={85}>85% ({lang === "vi" ? "Còn lại 15%" : "15% remaining"})</option>
+                      <option value={90}>90% ({lang === "vi" ? "Còn lại 10%" : "10% remaining"})</option>
                     </select>
                   </div>
 
                   <div>
                     <label className="block text-xs font-medium text-gray-700 dark:text-gray-300 mb-1">
-                      Khoảng cách lặp lại:
+                      {t.cooldownMinutesLabel}
                     </label>
                     <select
                       value={notificationConfig.cooldownMinutes}
@@ -2659,9 +2680,9 @@ function App() {
                       }
                       className="w-full h-9 px-3 rounded-lg border border-gray-300 dark:border-gray-600 bg-white dark:bg-gray-800 text-sm text-gray-900 dark:text-gray-100"
                     >
-                      <option value={30}>30 phút / lần</option>
-                      <option value={60}>60 phút / lần - Mặc định</option>
-                      <option value={120}>120 phút / lần</option>
+                      <option value={30}>30 {t.cooldownOptionMin}</option>
+                      <option value={60}>60 {t.cooldownOptionMin} {t.cooldownDefaultSuffix}</option>
+                      <option value={120}>120 {t.cooldownOptionMin}</option>
                     </select>
                   </div>
                 </div>
@@ -2671,7 +2692,7 @@ function App() {
               <div className="border border-emerald-200 dark:border-emerald-800/60 rounded-xl p-4 space-y-3 bg-emerald-50/40 dark:bg-emerald-950/20">
                 <div className="flex items-center justify-between">
                   <div className="flex items-center gap-2">
-                    <span className="text-emerald-600 dark:text-emerald-400 font-bold text-base">🔄 Tự động chuyển tài khoản (Auto-Switch)</span>
+                    <span className="text-emerald-600 dark:text-emerald-400 font-bold text-base">🔄 {t.autoSwitchSection}</span>
                   </div>
                   <label className="relative inline-flex items-center cursor-pointer">
                     <input
@@ -2693,13 +2714,13 @@ function App() {
                 </div>
 
                 <p className="text-xs text-gray-600 dark:text-gray-300">
-                  Khi tài khoản đang dùng đạt ngưỡng giới hạn, hệ thống sẽ tự động quét và chuyển sang tài khoản phụ có dung lượng còn nhiều nhất (0% hoặc thấp nhất) và gửi thông báo về Telegram.
+                  {t.autoSwitchSectionDesc}
                 </p>
 
                 {notificationConfig.autoSwitch?.enabled && (
                   <div>
                     <label className="block text-xs font-medium text-gray-700 dark:text-gray-300 mb-1">
-                      Tự động chuyển khi tài khoản active đã dùng đạt:
+                      {t.autoSwitchThresholdLabel}
                     </label>
                     <select
                       value={notificationConfig.autoSwitch?.threshold ?? 95}
@@ -2714,10 +2735,10 @@ function App() {
                       }
                       className="w-full h-9 px-3 rounded-lg border border-emerald-300 dark:border-emerald-700 bg-white dark:bg-gray-800 text-sm text-gray-900 dark:text-gray-100"
                     >
-                      <option value={85}>85% (Còn lại 15%)</option>
-                      <option value={90}>90% (Còn lại 10%)</option>
-                      <option value={95}>95% (Còn lại 5%) - Khuyên dùng</option>
-                      <option value={100}>100% (Hết hạn mức hoàn toàn)</option>
+                      <option value={85}>85% ({lang === "vi" ? "Còn lại 15%" : "15% remaining"})</option>
+                      <option value={90}>90% ({lang === "vi" ? "Còn lại 10%" : "10% remaining"})</option>
+                      <option value={95}>95% ({lang === "vi" ? "Còn lại 5% - Khuyên dùng" : "5% remaining - Recommended"})</option>
+                      <option value={100}>100% ({lang === "vi" ? "Hết hạn mức hoàn toàn" : "Completely exhausted"})</option>
                     </select>
                   </div>
                 )}
@@ -2730,10 +2751,10 @@ function App() {
                     <span className="text-base">🚀</span>
                     <div>
                       <h4 className="text-sm font-semibold text-purple-900 dark:text-purple-200">
-                        Tự động Tiếp tục Chat trên Paseo
+                        {t.autoResumePaseoSection}
                       </h4>
                       <p className="text-xs text-purple-700 dark:text-purple-400">
-                        Phát hiện lỗi hết Quota ➔ Đổi acc ➔ Gửi "tiếp tục" (không cần tắt app)
+                        {t.autoResumePaseoSectionDesc}
                       </p>
                     </div>
                   </div>
@@ -2753,14 +2774,14 @@ function App() {
                   </label>
                 </div>
                 <p className="text-xs text-gray-600 dark:text-gray-300">
-                  Khi Paseo báo lỗi "You’ve hit your usage limit", hệ thống sẽ tự động chuyển sang tài khoản mới, tải lại cấu hình daemon trong chớp mắt và tự động gửi tin nhắn tiếp tục vào đúng các cuộc trò chuyện đang làm dở.
+                  {t.autoResumePaseoDetail}
                 </p>
 
                 {notificationConfig.autoResumePaseo && (
                   <div className="pt-2 border-t border-purple-200/60 dark:border-purple-800/60 space-y-2.5">
                     <div>
                       <label className="block text-xs font-semibold text-purple-900 dark:text-purple-200 mb-1">
-                        Chế độ tiếp tục thông minh (Smart Resume Mode):
+                        {t.smartResumeMode}
                       </label>
                       <div className="grid grid-cols-3 gap-2">
                         <button
@@ -2774,7 +2795,7 @@ function App() {
                               : "bg-white dark:bg-gray-800 text-gray-700 dark:text-gray-300 border-purple-200 dark:border-purple-800 hover:bg-purple-50"
                           }`}
                         >
-                          ⚡ Smart (Khuyên dùng)
+                          {t.smartResumeSmartBtn}
                         </button>
                         <button
                           type="button"
@@ -2787,7 +2808,7 @@ function App() {
                               : "bg-white dark:bg-gray-800 text-gray-700 dark:text-gray-300 border-purple-200 dark:border-purple-800 hover:bg-purple-50"
                           }`}
                         >
-                          📦 Compact
+                          {t.smartResumeCompactBtn}
                         </button>
                         <button
                           type="button"
@@ -2800,33 +2821,33 @@ function App() {
                               : "bg-white dark:bg-gray-800 text-gray-700 dark:text-gray-300 border-purple-200 dark:border-purple-800 hover:bg-purple-50"
                           }`}
                         >
-                          ✏️ Tùy chỉnh
+                          {t.smartResumeCustomBtn}
                         </button>
                       </div>
                       <p className="text-[11px] text-purple-700 dark:text-purple-300 mt-1">
                         {(notificationConfig.smartResumeMode ?? "smart") === "smart"
-                          ? "⚡ Tự động định hướng: yêu cầu AI tập trung đúng mục tiêu dở dang, không đọc lại file cũ, tiết kiệm 60% reasoning tokens."
+                          ? t.smartResumeModeSmartDesc
                           : notificationConfig.smartResumeMode === "compact"
-                          ? "📦 Gửi: 'tiếp tục (chỉ xuất code/diff sửa đổi, không giải thích lý thuyết)'"
-                          : "✏️ Sử dụng chính xác nội dung bạn nhập bên dưới."}
+                          ? t.smartResumeModeCompactDesc
+                          : t.smartResumeModeCustomDesc}
                       </p>
                     </div>
 
                     {(notificationConfig.smartResumeMode === "custom") && (
                       <div>
                         <label className="block text-xs font-semibold text-purple-900 dark:text-purple-200 mb-1">
-                          Tin nhắn gửi đi khi tiếp tục (Resume Prompt):
+                          {t.customPromptLabel}
                         </label>
                         <input
                           type="text"
-                          value={notificationConfig.resumePrompt ?? "tiếp tục"}
+                          value={notificationConfig.resumePrompt ?? (lang === "vi" ? "tiếp tục" : "continue")}
                           onChange={(e) =>
                             setNotificationConfig((prev) => ({
                               ...prev,
                               resumePrompt: e.target.value,
                             }))
                           }
-                          placeholder="tiếp tục"
+                          placeholder={t.customPromptPlaceholder}
                           className="w-full h-9 px-3 rounded-lg border border-purple-300 dark:border-purple-700 bg-white dark:bg-gray-800 text-sm text-gray-900 dark:text-gray-100 placeholder-gray-400 focus:outline-none focus:ring-2 focus:ring-purple-500"
                         />
                       </div>
@@ -2841,14 +2862,14 @@ function App() {
                 onClick={() => setIsNotificationModalOpen(false)}
                 className="px-4 py-2 text-sm font-medium rounded-lg bg-gray-100 hover:bg-gray-200 dark:bg-gray-800 dark:hover:bg-gray-700 text-gray-700 dark:text-gray-200 transition-colors"
               >
-                Hủy
+                {t.cancelBtn}
               </button>
               <button
                 onClick={handleSaveNotificationConfig}
                 disabled={isSavingNotification}
                 className="px-5 py-2 text-sm font-medium rounded-lg bg-blue-600 hover:bg-blue-700 text-white transition-colors disabled:opacity-50"
               >
-                {isSavingNotification ? "Đang lưu..." : "Lưu cài đặt"}
+                {isSavingNotification ? t.savingSettings : t.saveSettings}
               </button>
             </div>
           </div>
@@ -2860,15 +2881,15 @@ function App() {
           <div className="bg-white dark:bg-gray-900 border border-gray-200 dark:border-gray-700 rounded-2xl w-full max-w-md mx-4 shadow-xl">
             <div className="p-5 border-b border-gray-100 dark:border-gray-800">
               <h2 className="text-lg font-semibold text-gray-900 dark:text-gray-100">
-                Keep Codex Switcher in the Dock?
+                {t.keepInDockTitle}
               </h2>
             </div>
             <div className="p-5 space-y-4">
               <p className="text-sm text-gray-600 dark:text-gray-300">
-                When the window is closed, Codex Switcher can stay in the Dock or live only in the menu bar.
+                {t.keepInDockDesc}
               </p>
               <p className="text-sm text-gray-600 dark:text-gray-300">
-                You can always change this later from the tray popup.
+                {t.keepInDockLater}
               </p>
               <label className="flex items-center gap-2 text-sm text-gray-700 dark:text-gray-200">
                 <input
@@ -2877,7 +2898,7 @@ function App() {
                   onChange={(event) => setCloseBehaviorDontAskAgain(event.target.checked)}
                   className="h-4 w-4 accent-gray-900 dark:accent-gray-100"
                 />
-                <span>Don't ask again</span>
+                <span>{t.dontAskAgain}</span>
               </label>
             </div>
             <div className="flex flex-col gap-2 p-5 border-t border-gray-100 dark:border-gray-800 sm:flex-row sm:justify-end">
@@ -2886,21 +2907,21 @@ function App() {
                 disabled={isCompletingCloseBehavior}
                 className="px-4 py-2.5 text-sm font-medium rounded-lg bg-gray-100 hover:bg-gray-200 dark:bg-gray-800 dark:hover:bg-gray-700 text-gray-700 dark:text-gray-200 transition-colors disabled:opacity-50"
               >
-                Cancel
+                {t.cancelBtn}
               </button>
               <button
                 onClick={() => void handleCloseBehaviorChoice("show_in_dock")}
                 disabled={isCompletingCloseBehavior}
                 className="px-4 py-2.5 text-sm font-medium rounded-lg bg-gray-100 hover:bg-gray-200 dark:bg-gray-800 dark:hover:bg-gray-700 text-gray-700 dark:text-gray-200 transition-colors disabled:opacity-50"
               >
-                Keep in Dock
+                {t.keepInDockBtn}
               </button>
               <button
                 onClick={() => void handleCloseBehaviorChoice("menu_bar_only")}
                 disabled={isCompletingCloseBehavior}
                 className="px-4 py-2.5 text-sm font-medium rounded-lg bg-gray-900 hover:bg-gray-800 dark:bg-gray-100 dark:hover:bg-gray-200 text-white dark:text-gray-900 transition-colors disabled:opacity-50"
               >
-                Menu Bar Only
+                {t.menuBarOnlyBtn}
               </button>
             </div>
           </div>
@@ -2923,7 +2944,7 @@ function App() {
           <div className="bg-white dark:bg-gray-900 border border-gray-200 dark:border-gray-700 rounded-2xl w-full max-w-2xl mx-4 shadow-xl">
             <div className="flex items-center justify-between p-5 border-b border-gray-100 dark:border-gray-800">
               <h2 className="text-lg font-semibold text-gray-900 dark:text-gray-100">
-                {configModalMode === "slim_export" ? "Export Slim Text" : "Import Slim Text"}
+                {configModalMode === "slim_export" ? t.exportSlimTitle : t.importSlimTitle}
               </h2>
               <button
                 onClick={() => setIsConfigModalOpen(false)}
@@ -2935,11 +2956,11 @@ function App() {
             <div className="p-5 space-y-4">
               {configModalMode === "slim_import" ? (
                 <p className="text-sm text-amber-700 dark:text-amber-200 bg-amber-50 dark:bg-amber-900/30 border border-amber-200 dark:border-amber-700 rounded-lg px-3 py-2">
-                  Existing accounts are kept. Only missing accounts are imported.
+                  {t.importSlimDesc}
                 </p>
               ) : (
                 <p className="text-sm text-gray-500 dark:text-gray-400">
-                  This slim string contains account secrets. Keep it private.
+                  {t.exportSlimDesc}
                 </p>
               )}
               <textarea
@@ -2949,9 +2970,9 @@ function App() {
                 placeholder={
                   configModalMode === "slim_export"
                     ? isExportingSlim
-                      ? "Generating..."
-                      : "Export string will appear here"
-                    : "Paste config string here"
+                      ? t.generating
+                      : t.exportPlaceholder
+                    : t.pasteConfigPlaceholder
                 }
                 className="w-full h-48 px-4 py-3 bg-gray-50 dark:bg-gray-800 border border-gray-200 dark:border-gray-700 rounded-lg text-sm text-gray-800 dark:text-gray-100 placeholder-gray-400 dark:placeholder-gray-500 focus:outline-none focus:border-gray-400 dark:focus:border-gray-500 focus:ring-1 focus:ring-gray-400 dark:focus:ring-gray-500 font-mono"
               />
@@ -2966,7 +2987,7 @@ function App() {
                 onClick={() => setIsConfigModalOpen(false)}
                 className="px-4 py-2.5 text-sm font-medium rounded-lg bg-gray-100 hover:bg-gray-200 dark:bg-gray-800 dark:hover:bg-gray-700 text-gray-700 dark:text-gray-200 transition-colors"
               >
-                Close
+                {t.closeBtn}
               </button>
               {configModalMode === "slim_export" ? (
                 <button
@@ -2983,7 +3004,7 @@ function App() {
                   disabled={!configPayload || isExportingSlim}
                   className="px-4 py-2.5 text-sm font-medium rounded-lg bg-gray-900 hover:bg-gray-800 dark:bg-gray-100 dark:hover:bg-gray-200 text-white dark:text-gray-900 transition-colors disabled:opacity-50"
                 >
-                  {configCopied ? "Copied" : "Copy String"}
+                  {configCopied ? t.copiedBtn : t.copyStringBtn}
                 </button>
               ) : (
                 <button
@@ -2991,7 +3012,7 @@ function App() {
                   disabled={isImportingSlim}
                   className="px-4 py-2.5 text-sm font-medium rounded-lg bg-gray-900 hover:bg-gray-800 dark:bg-gray-100 dark:hover:bg-gray-200 text-white dark:text-gray-900 transition-colors disabled:opacity-50"
                 >
-                  {isImportingSlim ? "Importing..." : "Import Missing Accounts"}
+                  {isImportingSlim ? t.importing : t.importConfigBtn}
                 </button>
               )}
             </div>

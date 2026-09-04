@@ -1,5 +1,6 @@
 import { useState, useEffect, useCallback, useMemo } from "react";
 import { invokeBackend } from "../lib/platform";
+import { useI18n } from "../lib/i18n";
 
 export interface PaseoProjectMeta {
   projectId: string;
@@ -87,6 +88,7 @@ export function PaseoTabsManager({
   onShowToast?: (msg: string, isError?: boolean) => void;
   onNavigateHome?: () => void;
 }) {
+  const { t, lang } = useI18n();
   const [tabs, setTabs] = useState<PaseoTabInfo[]>([]);
   const [allProjects, setAllProjects] = useState<PaseoProjectMeta[]>([]);
   const [allWorkspaces, setAllWorkspaces] = useState<PaseoWorkspaceMeta[]>([]);
@@ -141,20 +143,20 @@ export function PaseoTabsManager({
   const handleSmartResume = async (tab: PaseoTabInfo) => {
     try {
       setActionLoadingId(tab.id);
-      onShowToast?.(`Đang gửi Smart Resume cho tab "${tab.title}"...`);
+      onShowToast?.(lang === "vi" ? `Đang gửi Smart Resume cho tab "${tab.title}"...` : `Sending Smart Resume for tab "${tab.title}"...`);
       const res = await invokeBackend<{
         ok: boolean;
         result?: { switchedTo?: { name: string } };
       }>("auto_resume_paseo", { agentId: tab.id });
       if (res?.ok) {
-        onShowToast?.(`Đã gửi Smart Resume thành công tới tab "${tab.title}"!`);
+        onShowToast?.(lang === "vi" ? `Đã gửi Smart Resume thành công tới tab "${tab.title}"!` : `Successfully sent Smart Resume to "${tab.title}"!`);
       } else {
-        onShowToast?.("Đã gửi Smart Resume tới tab Paseo!");
+        onShowToast?.(lang === "vi" ? "Đã gửi Smart Resume tới tab Paseo!" : "Sent Smart Resume to Paseo tab!");
       }
       await fetchTabs();
     } catch (err) {
       console.error("Smart resume error:", err);
-      onShowToast?.(`Lỗi gửi Smart Resume: ${err instanceof Error ? err.message : String(err)}`, true);
+      onShowToast?.(`${lang === "vi" ? "Lỗi gửi Smart Resume:" : "Error sending Smart Resume:"} ${err instanceof Error ? err.message : String(err)}`, true);
     } finally {
       setActionLoadingId(null);
     }
@@ -163,7 +165,7 @@ export function PaseoTabsManager({
   const handleSmartHandoff = async (tab: PaseoTabInfo) => {
     try {
       setActionLoadingId(tab.id);
-      onShowToast?.(`Đang tách tab mới tinh gọn cho "${tab.title}"...`);
+      onShowToast?.(lang === "vi" ? `Đang tách tab mới tinh gọn cho "${tab.title}"...` : `Creating fresh handoff tab for "${tab.title}"...`);
       const res = await invokeBackend<{
         ok: boolean;
         result?: { newAgentId?: string; title?: string; workspaceTitle?: string };
@@ -171,21 +173,23 @@ export function PaseoTabsManager({
 
       if (res?.ok) {
         onShowToast?.(
-          `🌱 Đã tạo tab mới tinh gọn "${res.result?.title || tab.title}" trong Workspace "${tab.workspaceTitle}" thành công (Tiết kiệm >85% Quota)!`
+          lang === "vi"
+            ? `🌱 Đã tạo tab mới tinh gọn "${res.result?.title || tab.title}" trong Workspace "${tab.workspaceTitle}" thành công (Tiết kiệm >85% Quota)!`
+            : `🌱 Successfully created fresh tab "${res.result?.title || tab.title}" in Workspace "${tab.workspaceTitle}" (Saved >85% Quota)!`
         );
       } else {
-        onShowToast?.("Đã tạo tab Paseo mới thành công!");
+        onShowToast?.(lang === "vi" ? "Đã tạo tab Paseo mới thành công!" : "Successfully created fresh Paseo tab!");
       }
       await fetchTabs();
     } catch (err) {
       console.error("Smart handoff error:", err);
-      onShowToast?.(`Lỗi tách tab mới: ${err instanceof Error ? err.message : String(err)}`, true);
+      onShowToast?.(`${lang === "vi" ? "Lỗi tách tab mới:" : "Error creating fresh tab:"} ${err instanceof Error ? err.message : String(err)}`, true);
     } finally {
       setActionLoadingId(null);
     }
   };
 
-  // Grouping logic: Project => Workspace => Tabs (Including empty workspaces)
+  // Grouping logic: Project => Workspace => Tabs
   const projectTree = useMemo(() => {
     const prjMap = new Map<string, ProjectGroup>();
 
@@ -221,50 +225,26 @@ export function PaseoTabsManager({
         };
         prjMap.set(w.projectId, prj);
       }
-
-      if (!prj.workspaces.some((x) => x.workspaceId === w.workspaceId)) {
-        prj.workspaces.push({
-          workspaceId: w.workspaceId,
-          title: w.title,
-          cwd: w.cwd,
-          branch: w.branch,
-          tabs: [],
-          totalTokens: 0,
-          bloatedCount: 0,
-          runningCount: 0,
-          erroredCount: 0,
-        });
-      }
+      prj.workspaces.push({
+        workspaceId: w.workspaceId,
+        title: w.title,
+        cwd: w.cwd,
+        branch: w.branch,
+        tabs: [],
+        totalTokens: 0,
+        bloatedCount: 0,
+        runningCount: 0,
+        erroredCount: 0,
+      });
     }
 
-    // 3. Filter tabs according to filterMode and searchQuery
-    const filtered = tabs.filter((t) => {
-      if (filterMode === "running" && t.statusType !== "running") return false;
-      if (filterMode === "idle" && t.statusType !== "idle" && t.statusType !== "closed") return false;
-      if (filterMode === "waiting" && t.statusType !== "waiting") return false;
-      if (filterMode === "bloated" && !t.isBloated) return false;
-      if (filterMode === "errored" && !t.hasQuotaError && t.statusType !== "error" && t.statusType !== "quota_error") return false;
-
-      if (searchQuery.trim()) {
-        const q = searchQuery.toLowerCase();
-        const matchesTitle = t.title.toLowerCase().includes(q);
-        const matchesWks = t.workspaceTitle.toLowerCase().includes(q);
-        const matchesPrj = t.projectName.toLowerCase().includes(q);
-        const matchesCwd = t.cwd.toLowerCase().includes(q);
-        const matchesStatus = t.statusLabel.toLowerCase().includes(q);
-        if (!matchesTitle && !matchesWks && !matchesPrj && !matchesCwd && !matchesStatus) return false;
-      }
-      return true;
-    });
-
-    // 4. Distribute tabs into the project & workspace tree
-    for (const tab of filtered) {
-      const pId = tab.projectId || "default_prj";
-      let prj = prjMap.get(pId);
+    // 3. Attach tabs
+    for (const tab of tabs) {
+      let prj = prjMap.get(tab.projectId);
       if (!prj) {
         prj = {
-          projectId: pId,
-          projectName: tab.projectName || "Dự Án Chính",
+          projectId: tab.projectId,
+          projectName: tab.projectName || "Default Project",
           rootPath: tab.cwd,
           workspaces: [],
           totalTabs: 0,
@@ -273,21 +253,14 @@ export function PaseoTabsManager({
           erroredCount: 0,
           totalTokens: 0,
         };
-        prjMap.set(pId, prj);
+        prjMap.set(tab.projectId, prj);
       }
 
-      prj.totalTabs++;
-      prj.totalTokens += tab.inputTokens;
-      if (tab.isBloated) prj.bloatedCount++;
-      if (tab.statusType === "running") prj.runningCount++;
-      if (tab.hasQuotaError || tab.statusType === "error") prj.erroredCount++;
-
-      const wId = tab.workspaceId || "default_wks";
-      let wks = prj.workspaces.find((w) => w.workspaceId === wId);
+      let wks = prj.workspaces.find((w) => w.workspaceId === tab.workspaceId);
       if (!wks) {
         wks = {
-          workspaceId: wId,
-          title: tab.workspaceTitle || "Workspace",
+          workspaceId: tab.workspaceId,
+          title: tab.workspaceTitle || "Main Workspace",
           cwd: tab.cwd,
           branch: tab.branch,
           tabs: [],
@@ -299,23 +272,56 @@ export function PaseoTabsManager({
         prj.workspaces.push(wks);
       }
 
-      wks.tabs.push(tab);
-      wks.totalTokens += tab.inputTokens;
-      if (tab.isBloated) wks.bloatedCount++;
-      if (tab.statusType === "running") wks.runningCount++;
-      if (tab.hasQuotaError || tab.statusType === "error") wks.erroredCount++;
+      // Filter matching
+      let matchesFilter = true;
+      if (filterMode === "running") {
+        matchesFilter = tab.statusType === "running";
+      } else if (filterMode === "idle") {
+        matchesFilter = tab.statusType === "idle" || tab.statusType === "closed";
+      } else if (filterMode === "waiting") {
+        matchesFilter = tab.statusType === "waiting";
+      } else if (filterMode === "bloated") {
+        matchesFilter = tab.isBloated;
+      } else if (filterMode === "errored") {
+        matchesFilter = tab.hasQuotaError || tab.statusType === "error" || tab.statusType === "quota_error";
+      }
+
+      if (matchesFilter && searchQuery.trim()) {
+        const q = searchQuery.toLowerCase().trim();
+        const tabMatch =
+          tab.title.toLowerCase().includes(q) ||
+          tab.lastStatus.toLowerCase().includes(q) ||
+          (tab.model && tab.model.toLowerCase().includes(q)) ||
+          tab.workspaceTitle.toLowerCase().includes(q) ||
+          tab.projectName.toLowerCase().includes(q);
+        if (!tabMatch) {
+          matchesFilter = false;
+        }
+      }
+
+      if (matchesFilter) {
+        wks.tabs.push(tab);
+        wks.totalTokens += tab.totalTokens;
+        if (tab.isBloated) wks.bloatedCount++;
+        if (tab.statusType === "running") wks.runningCount++;
+        if (tab.hasQuotaError || tab.statusType === "error" || tab.statusType === "quota_error") {
+          wks.erroredCount++;
+        }
+
+        prj.totalTabs++;
+        prj.totalTokens += tab.totalTokens;
+        if (tab.isBloated) prj.bloatedCount++;
+        if (tab.statusType === "running") prj.runningCount++;
+        if (tab.hasQuotaError || tab.statusType === "error" || tab.statusType === "quota_error") {
+          prj.erroredCount++;
+        }
+      }
     }
 
-    // 5. If filter is active (e.g. searching or filtering specific tabs), prune empty workspaces that don't match
+    // Return non-empty groups if searching or filtering, or all projects
     if (filterMode !== "all" || searchQuery.trim()) {
-      return Array.from(prjMap.values())
-        .map((p) => ({
-          ...p,
-          workspaces: p.workspaces.filter((w) => w.tabs.length > 0),
-        }))
-        .filter((p) => p.workspaces.length > 0);
+      return Array.from(prjMap.values()).filter((p) => p.totalTabs > 0);
     }
-
     return Array.from(prjMap.values());
   }, [allProjects, allWorkspaces, tabs, filterMode, searchQuery]);
 
@@ -337,27 +343,27 @@ export function PaseoTabsManager({
             <div>
               <div className="flex flex-wrap items-center gap-2">
                 <h1 className="text-lg font-bold text-gray-900 dark:text-gray-100 tracking-tight">
-                  Quản Lý Projects, Workspaces & Tabs Paseo
+                  {t.paseoManagerTitle}
                 </h1>
                 {totalRunningCount > 0 && (
                   <span className="px-2.5 py-0.5 text-xs font-bold rounded-full bg-emerald-100 text-emerald-800 dark:bg-emerald-950/80 dark:text-emerald-300 border border-emerald-300 dark:border-emerald-700 flex items-center gap-1">
                     <span className="w-2 h-2 rounded-full bg-emerald-500 animate-ping"></span>
-                    <span>{totalRunningCount} tab đang chạy</span>
+                    <span>{totalRunningCount} {lang === "vi" ? "tab đang chạy" : "running tabs"}</span>
                   </span>
                 )}
                 {totalBloatedCount > 0 && (
                   <span className="px-2.5 py-0.5 text-xs font-bold rounded-full bg-amber-100 text-amber-800 dark:bg-amber-950/80 dark:text-amber-300 border border-amber-200 dark:border-amber-700">
-                    {totalBloatedCount} tab quá turns
+                    {totalBloatedCount} {lang === "vi" ? "tab quá turns" : "bloated tabs"}
                   </span>
                 )}
                 {totalErroredCount > 0 && (
                   <span className="px-2.5 py-0.5 text-xs font-bold rounded-full bg-red-100 text-red-800 dark:bg-red-950/80 dark:text-red-300 border border-red-200 dark:border-red-700 animate-pulse">
-                    {totalErroredCount} tab lỗi Quota
+                    {totalErroredCount} {lang === "vi" ? "tab lỗi Quota" : "quota error tabs"}
                   </span>
                 )}
               </div>
               <p className="text-xs text-gray-500 dark:text-gray-400 mt-0.5">
-                Theo dõi trạng thái thời gian thực (<strong className="text-emerald-600 dark:text-emerald-400">Đang chạy</strong>, <strong className="text-gray-700 dark:text-gray-300">Đã dừng</strong>, <strong className="text-red-600 dark:text-red-400">Lỗi Quota</strong>), số turns và tách tab tinh gọn.
+                {t.paseoManagerSubtitle}
               </p>
             </div>
           </div>
@@ -368,8 +374,8 @@ export function PaseoTabsManager({
                 onClick={onNavigateHome}
                 className="px-3.5 py-2 text-xs font-semibold rounded-xl border border-gray-300 dark:border-gray-700 bg-white dark:bg-gray-800 text-gray-800 dark:text-gray-200 hover:bg-gray-100 dark:hover:bg-gray-700 transition-all flex items-center gap-1.5 cursor-pointer shadow-xs"
               >
-                <span>⬅️</span>
-                <span>Dashboard Tài Khoản</span>
+                <span>👥</span>
+                <span>{t.topRouteAccounts}</span>
               </button>
             )}
 
@@ -391,48 +397,39 @@ export function PaseoTabsManager({
                   d="M4 4v5h.582m15.356 2A8.001 8.001 0 004.582 9m0 0H9m11 11v-5h-.581m0 0a8.003 8.003 0 01-15.357-2m15.357 2H15"
                 />
               </svg>
-              <span>Làm mới</span>
+              <span>{t.refreshTabs}</span>
             </button>
           </div>
         </div>
 
         {/* Quota Optimization Guide Banner */}
         <div className="mt-4 p-4 rounded-xl bg-gradient-to-r from-blue-50/80 via-indigo-50/60 to-teal-50/60 dark:from-blue-950/40 dark:via-indigo-950/30 dark:to-teal-950/30 border border-blue-200/80 dark:border-blue-900/50 space-y-3 text-xs">
-          {/* Row 1: Title & Explanation */}
           <div className="flex items-start gap-2.5">
             <span className="text-base shrink-0 mt-0.5">💡</span>
             <div>
               <span className="font-bold text-gray-900 dark:text-gray-100">
-                Khuyến Nghị Tối Ưu Quota:
+                {t.quotaAdviceTitle}:
               </span>
               <span className="text-gray-600 dark:text-gray-300 ml-1.5">
-                Càng nhiều turns, mỗi câu chat càng nạp lại context lớn. Khuyên dùng:
+                {t.quotaAdviceDesc}
               </span>
             </div>
           </div>
 
-          {/* Row 2: Recommendation List (Separate Row with Grid) */}
           <div className="grid grid-cols-1 sm:grid-cols-3 gap-2.5 pt-0.5">
             <div className="px-3 py-2 rounded-lg bg-white/90 dark:bg-gray-800 border border-emerald-300/90 dark:border-emerald-700/80 text-emerald-900 dark:text-emerald-300 font-medium flex items-center gap-2 shadow-2xs">
               <span className="text-sm">🟢</span>
-              <div>
-                <strong>&lt; 15 turns</strong>: Chat bình thường
-              </div>
+              <div>{t.adviceUnder15}</div>
             </div>
 
             <div className="px-3 py-2 rounded-lg bg-white/90 dark:bg-gray-800 border border-amber-300/90 dark:border-amber-700/80 text-amber-900 dark:text-amber-300 font-medium flex items-center gap-2 shadow-2xs">
               <span className="text-sm">🟡</span>
-              <div>
-                <strong>15 – 25 turns</strong>: Dùng ⚡ <strong>Smart Resume</strong>
-              </div>
+              <div>{t.adviceErrors}</div>
             </div>
 
             <div className="px-3 py-2 rounded-lg bg-white/90 dark:bg-gray-800 border border-red-300/90 dark:border-red-700/80 text-red-900 dark:text-red-300 font-medium flex items-center gap-2 shadow-2xs">
               <span className="text-sm">🔴</span>
-              <div>
-                <strong>&gt; 25 turns</strong>: Bấm 🌱 <strong>Tách Tab Mới</strong>
-                <span className="text-[11px] block font-normal opacity-90">(Tiết kiệm &gt;85% Quota)</span>
-              </div>
+              <div>{t.adviceOver25}</div>
             </div>
           </div>
         </div>
@@ -449,7 +446,7 @@ export function PaseoTabsManager({
                   : "text-gray-600 dark:text-gray-400 hover:text-gray-900 dark:hover:text-gray-100"
               }`}
             >
-              Tất cả ({tabs.length})
+              {t.filterAll} ({tabs.length})
             </button>
 
             <button
@@ -461,7 +458,7 @@ export function PaseoTabsManager({
               }`}
             >
               <span className="w-2 h-2 rounded-full bg-emerald-400 animate-pulse"></span>
-              <span>Đang chạy ({totalRunningCount})</span>
+              <span>{t.filterRunning} ({totalRunningCount})</span>
             </button>
 
             <button
@@ -473,7 +470,7 @@ export function PaseoTabsManager({
               }`}
             >
               <span>⚪</span>
-              <span>Đã dừng ({totalIdleCount})</span>
+              <span>{t.filterIdle} ({totalIdleCount})</span>
             </button>
 
             {totalWaitingCount > 0 && (
@@ -486,7 +483,7 @@ export function PaseoTabsManager({
                 }`}
               >
                 <span>🟡</span>
-                <span>Chờ ({totalWaitingCount})</span>
+                <span>{t.filterWaiting} ({totalWaitingCount})</span>
               </button>
             )}
 
@@ -499,7 +496,7 @@ export function PaseoTabsManager({
               }`}
             >
               <span>⚠️</span>
-              <span>Quá Turns ({totalBloatedCount})</span>
+              <span>{t.filterBloated} ({totalBloatedCount})</span>
             </button>
 
             {totalErroredCount > 0 && (
@@ -512,7 +509,7 @@ export function PaseoTabsManager({
                 }`}
               >
                 <span>🔴</span>
-                <span>Lỗi Quota ({totalErroredCount})</span>
+                <span>{t.filterErrored} ({totalErroredCount})</span>
               </button>
             )}
           </div>
@@ -523,7 +520,7 @@ export function PaseoTabsManager({
               type="text"
               value={searchQuery}
               onChange={(e) => setSearchQuery(e.target.value)}
-              placeholder="Tìm theo tên tab, trạng thái, workspace..."
+              placeholder={t.searchTabsPlaceholder}
               className="w-full h-9 pl-9 pr-3 text-xs rounded-xl border border-gray-300 dark:border-gray-700 bg-white dark:bg-gray-800 text-gray-900 dark:text-gray-100 placeholder-gray-400 dark:placeholder-gray-500 focus:outline-none focus:ring-2 focus:ring-emerald-500/50"
             />
             <span className="absolute left-3 top-2.5 text-xs text-gray-400 dark:text-gray-500">🔍</span>
@@ -543,7 +540,7 @@ export function PaseoTabsManager({
       {projectTree.length === 0 ? (
         <div className="p-12 text-center text-sm text-gray-400 dark:text-gray-500 bg-white dark:bg-gray-900 rounded-2xl border border-dashed border-gray-200 dark:border-gray-700">
           <div className="text-3xl mb-2">🔍</div>
-          <div>Không tìm thấy tab nào phù hợp với trạng thái hoặc bộ lọc hiện tại.</div>
+          <div>{t.noTabsFound}</div>
         </div>
       ) : (
         <div className="space-y-4">
@@ -565,7 +562,7 @@ export function PaseoTabsManager({
                     <div>
                       <div className="flex items-center gap-2">
                         <span className="font-bold text-sm text-gray-900 dark:text-gray-100">
-                          Project: {project.projectName}
+                          {t.project}: {project.projectName}
                         </span>
                         <span className="text-xs text-gray-500 dark:text-gray-400 font-mono">({project.rootPath})</span>
                       </div>
@@ -573,10 +570,10 @@ export function PaseoTabsManager({
                         <span>{project.workspaces.length} Workspace · {project.totalTabs} Tabs</span>
                         {project.runningCount > 0 && (
                           <span className="text-emerald-600 dark:text-emerald-400 font-semibold">
-                            · 🟢 {project.runningCount} đang chạy
+                            · 🟢 {project.runningCount} {lang === "vi" ? "đang chạy" : "running"}
                           </span>
                         )}
-                        <span>· Tổng context: {formatTokenCount(project.totalTokens)} tokens</span>
+                        <span>· {lang === "vi" ? "Tổng context:" : "Total context:"} {formatTokenCount(project.totalTokens)} tokens</span>
                       </div>
                     </div>
                   </div>
@@ -584,7 +581,7 @@ export function PaseoTabsManager({
                   <div className="flex items-center gap-2 shrink-0">
                     {project.bloatedCount > 0 && (
                       <span className="px-2.5 py-1 rounded-lg text-xs font-bold bg-amber-100 text-amber-800 dark:bg-amber-950/80 dark:text-amber-300 border border-amber-200 dark:border-amber-700">
-                        ⚠️ {project.bloatedCount} Quá turns
+                        ⚠️ {project.bloatedCount} {lang === "vi" ? "Quá turns" : "Bloated"}
                       </span>
                     )}
                     <svg
@@ -621,7 +618,7 @@ export function PaseoTabsManager({
                               <div>
                                 <div className="flex items-center gap-2">
                                   <span className="font-semibold text-xs text-gray-900 dark:text-gray-100">
-                                    Workspace: {workspace.title}
+                                    {t.workspace}: {workspace.title}
                                   </span>
                                   {workspace.branch && (
                                     <span className="px-2 py-0.5 rounded-md text-[10px] font-mono bg-blue-50 text-blue-700 dark:bg-blue-950/80 dark:text-blue-300 border border-blue-200 dark:border-blue-700">
@@ -630,19 +627,19 @@ export function PaseoTabsManager({
                                   )}
                                   {workspace.runningCount > 0 && (
                                     <span className="px-1.5 py-0.5 rounded text-[10px] font-bold bg-emerald-100 text-emerald-800 dark:bg-emerald-950/80 dark:text-emerald-300 border border-emerald-200 dark:border-emerald-700 animate-pulse">
-                                      {workspace.runningCount} đang chạy
+                                      {workspace.runningCount} {lang === "vi" ? "đang chạy" : "running"}
                                     </span>
                                   )}
                                 </div>
                                 <div className="text-[11px] text-gray-500 dark:text-gray-400 font-mono truncate">
-                                  ID: {workspace.workspaceId} · Thư mục: {workspace.cwd}
+                                  ID: {workspace.workspaceId} · {lang === "vi" ? "Thư mục:" : "Folder:"} {workspace.cwd}
                                 </div>
                               </div>
                             </div>
 
                             <div className="flex items-center gap-2 shrink-0">
                               <span className="text-xs text-gray-500 dark:text-gray-400">
-                                {workspace.tabs.length} tab ({formatTokenCount(workspace.totalTokens)} context)
+                                {workspace.tabs.length} tabs ({formatTokenCount(workspace.totalTokens)} context)
                               </span>
                               <svg
                                 className={`w-4 h-4 text-gray-400 dark:text-gray-500 transform transition-transform duration-200 ${
@@ -661,7 +658,7 @@ export function PaseoTabsManager({
                           {!isWksCollapsed && (
                             workspace.tabs.length === 0 ? (
                               <div className="p-4 text-center text-xs text-gray-400 dark:text-gray-500 bg-white dark:bg-gray-900 border-t border-gray-100 dark:border-gray-800">
-                                Chưa có tab nào đang hoạt động trong workspace này.
+                                {lang === "vi" ? "Chưa có tab nào đang hoạt động trong workspace này." : "No active tabs in this workspace."}
                               </div>
                             ) : (
                               <div className="p-3.5 grid grid-cols-1 md:grid-cols-2 gap-3 bg-white dark:bg-gray-900">
@@ -695,26 +692,27 @@ export function PaseoTabsManager({
                                           <div className="shrink-0 flex items-center gap-1">
                                             {tab.statusType === "running" ? (
                                               <span className="px-2 py-0.5 text-[10px] font-bold rounded-md bg-emerald-100 dark:bg-emerald-950/80 text-emerald-800 dark:text-emerald-300 border border-emerald-300 dark:border-emerald-700 flex items-center gap-1 shadow-2xs">
-                                              <span className="w-1.5 h-1.5 rounded-full bg-emerald-500 animate-ping inline-block"></span>
-                                              <span>Đang chạy</span>
-                                            </span>
-                                          ) : tab.statusType === "quota_error" ? (
-                                            <span className="px-2 py-0.5 text-[10px] font-bold rounded-md bg-red-100 dark:bg-red-950/80 text-red-700 dark:text-red-300 border border-red-300 dark:border-red-700 animate-pulse">
-                                              Lỗi Hết Quota
-                                            </span>
-                                          ) : tab.statusType === "error" ? (
-                                            <span className="px-2 py-0.5 text-[10px] font-bold rounded-md bg-red-100 dark:bg-red-950/80 text-red-700 dark:text-red-300 border border-red-300 dark:border-red-700">
-                                              Lỗi
-                                            </span>
-                                          ) : tab.statusType === "waiting" ? (
-                                            <span className="px-2 py-0.5 text-[10px] font-bold rounded-md bg-amber-100 dark:bg-amber-950/80 text-amber-700 dark:text-amber-300 border border-amber-300 dark:border-amber-700">
-                                              Chờ phản hồi
-                                            </span>
-                                          ) : (
-                                            <span className="px-2 py-0.5 text-[10px] font-medium rounded-md bg-gray-100 dark:bg-gray-800 text-gray-600 dark:text-gray-400 border border-gray-200 dark:border-gray-700">
-                                              Đã dừng
-                                            </span>
-                                          )}
+                                                <span className="w-1.5 h-1.5 rounded-full bg-emerald-500 animate-ping inline-block"></span>
+                                                <span>{lang === "vi" ? "Đang chạy" : "Running"}</span>
+                                              </span>
+                                            ) : tab.statusType === "quota_error" ? (
+                                              <span className="px-2 py-0.5 text-[10px] font-bold rounded-md bg-red-100 dark:bg-red-950/80 text-red-700 dark:text-red-300 border border-red-300 dark:border-red-700 animate-pulse">
+                                                {lang === "vi" ? "Lỗi Hết Quota" : "Quota Error"}
+                                              </span>
+                                            ) : tab.statusType === "error" ? (
+                                              <span className="px-2 py-0.5 text-[10px] font-bold rounded-md bg-red-100 dark:bg-red-950/80 text-red-700 dark:text-red-300 border border-red-300 dark:border-red-700">
+                                                {lang === "vi" ? "Lỗi" : "Error"}
+                                              </span>
+                                            ) : tab.statusType === "waiting" ? (
+                                              <span className="px-2 py-0.5 text-[10px] font-bold rounded-md bg-amber-100 dark:bg-amber-950/80 text-amber-700 dark:text-amber-300 border border-amber-300 dark:border-amber-700">
+                                                {lang === "vi" ? "Chờ phản hồi" : "Waiting"}
+                                              </span>
+                                            ) : (
+                                              <span className="px-2 py-0.5 text-[10px] font-medium rounded-md bg-gray-100 dark:bg-gray-800 text-gray-600 dark:text-gray-400 border border-gray-200 dark:border-gray-700">
+                                                {lang === "vi" ? "Đã dừng" : "Idle"}
+                                              </span>
+                                            )}
+                                          </div>
                                         </div>
                                       </div>
 
@@ -730,7 +728,7 @@ export function PaseoTabsManager({
                                         </div>
                                         <div>
                                           <span className="text-[10px] text-gray-500 dark:text-gray-400 uppercase tracking-wider block">
-                                            Số Lượt (Turns)
+                                            {t.totalTurns}
                                           </span>
                                           <span
                                             className={`font-bold font-mono ${
@@ -745,43 +743,43 @@ export function PaseoTabsManager({
                                           </span>
                                         </div>
                                       </div>
-                                    </div>
 
-                                    {/* Tab Actions */}
-                                    <div className="flex items-center justify-between gap-2 pt-2 border-t border-gray-200 dark:border-gray-700 text-xs">
-                                      <span className="text-[11px] text-gray-600 dark:text-gray-400 truncate">
-                                        {tab.recommendedAction}
-                                      </span>
+                                      {/* Tab Actions */}
+                                      <div className="flex items-center justify-between gap-2 pt-2 border-t border-gray-200 dark:border-gray-700 text-xs">
+                                        <span className="text-[11px] text-gray-600 dark:text-gray-400 truncate">
+                                          {tab.recommendedAction}
+                                        </span>
 
-                                      <div className="flex items-center gap-1.5 shrink-0">
-                                        {tab.isBloated && (
+                                        <div className="flex items-center gap-1.5 shrink-0">
+                                          {tab.isBloated && (
+                                            <button
+                                              onClick={() => void handleSmartHandoff(tab)}
+                                              disabled={isWorking}
+                                              title={lang === "vi" ? "Tạo tab mới sạch sẽ với ~3k tokens từ tác vụ này (Tiết kiệm >85% Quota)" : "Create fresh lightweight tab (~3k tokens, saving >85% Quota)"}
+                                              className="px-2.5 py-1 text-xs font-semibold rounded-lg bg-emerald-600 hover:bg-emerald-700 text-white shadow-xs transition-colors disabled:opacity-50 flex items-center gap-1 cursor-pointer"
+                                            >
+                                              <span>🌱</span>
+                                              <span>{t.freshHandoffTab}</span>
+                                            </button>
+                                          )}
+
                                           <button
-                                            onClick={() => void handleSmartHandoff(tab)}
+                                            onClick={() => void handleSmartResume(tab)}
                                             disabled={isWorking}
-                                            title="Tạo tab mới sạch sẽ với ~3k tokens từ tác vụ này (Tiết kiệm >85% Quota)"
-                                            className="px-2.5 py-1 text-xs font-semibold rounded-lg bg-emerald-600 hover:bg-emerald-700 text-white shadow-xs transition-colors disabled:opacity-50 flex items-center gap-1 cursor-pointer"
+                                            title={lang === "vi" ? "Gửi prompt định hướng súc tích" : "Send smart prompt resume"}
+                                            className="px-2.5 py-1 text-xs font-semibold rounded-lg bg-white dark:bg-gray-800 hover:bg-gray-100 dark:hover:bg-gray-700 text-gray-800 dark:text-gray-200 border border-gray-300 dark:border-gray-600 transition-colors disabled:opacity-50 flex items-center gap-1 cursor-pointer shadow-2xs"
                                           >
-                                            <span>🌱</span>
-                                            <span>Tách Tab</span>
+                                            <span>⚡</span>
+                                            <span>{t.smartResumeTab}</span>
                                           </button>
-                                        )}
-
-                                        <button
-                                          onClick={() => void handleSmartResume(tab)}
-                                          disabled={isWorking}
-                                          title="Gửi prompt định hướng súc tích"
-                                          className="px-2.5 py-1 text-xs font-semibold rounded-lg bg-white dark:bg-gray-800 hover:bg-gray-100 dark:hover:bg-gray-700 text-gray-800 dark:text-gray-200 border border-gray-300 dark:border-gray-600 transition-colors disabled:opacity-50 flex items-center gap-1 cursor-pointer shadow-2xs"
-                                        >
-                                          <span>⚡</span>
-                                          <span>Resume</span>
-                                        </button>
+                                        </div>
                                       </div>
                                     </div>
-                                  </div>
-                                );
-                              })}
-                            </div>
-                          ))}
+                                  );
+                                })}
+                              </div>
+                            )
+                          )}
                         </div>
                       );
                     })}

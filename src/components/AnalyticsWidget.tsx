@@ -1,5 +1,6 @@
 import { useState, useEffect, useCallback } from "react";
 import { invokeBackend } from "../lib/platform";
+import { useI18n } from "../lib/i18n";
 
 export type TimeWindowKey = "1h" | "24h" | "3d" | "7d" | "30d";
 
@@ -57,14 +58,6 @@ export interface SystemQuotaOverview {
   }>;
 }
 
-const WINDOW_TABS: Array<{ key: TimeWindowKey; label: string; icon: string }> = [
-  { key: "1h", label: "1 Giờ", icon: "⚡" },
-  { key: "24h", label: "24 Giờ", icon: "📅" },
-  { key: "3d", label: "3 Ngày", icon: "📆" },
-  { key: "7d", label: "7 Ngày", icon: "📊" },
-  { key: "30d", label: "30 Ngày", icon: "📈" },
-];
-
 function formatTokens(tokens: number | null | undefined): string {
   if (tokens === null || tokens === undefined || !Number.isFinite(tokens)) return "0";
   const abs = Math.abs(tokens);
@@ -92,6 +85,16 @@ const STORAGE_COLLAPSED_KEY = "codex_analytics_widget_collapsed";
 const STORAGE_WINDOW_KEY = "codex_analytics_widget_window";
 
 export function AnalyticsWidget({ masked = false }: { masked?: boolean }) {
+  const { t, lang } = useI18n();
+
+  const windowTabs: Array<{ key: TimeWindowKey; label: string; icon: string }> = [
+    { key: "1h", label: t.window1h, icon: "⚡" },
+    { key: "24h", label: t.window24h, icon: "📅" },
+    { key: "3d", label: t.window3d, icon: "📆" },
+    { key: "7d", label: t.window7d, icon: "📊" },
+    { key: "30d", label: t.window30d, icon: "📈" },
+  ];
+
   const [selectedWindow, setSelectedWindow] = useState<TimeWindowKey>(() => {
     return (localStorage.getItem(STORAGE_WINDOW_KEY) as TimeWindowKey) || "24h";
   });
@@ -177,14 +180,14 @@ export function AnalyticsWidget({ masked = false }: { masked?: boolean }) {
           <div>
             <div className="flex items-center gap-2">
               <h2 className="text-sm font-bold text-gray-900 dark:text-white tracking-tight">
-                Thống Kê Token & Quota Toàn Hệ Thống
+                {t.analyticsTitle}
               </h2>
               <span className="px-2 py-0.5 text-[10px] font-semibold tracking-wide uppercase rounded-full bg-purple-100 text-purple-700 dark:bg-purple-900/50 dark:text-purple-300 border border-purple-200/50 dark:border-purple-800/50">
                 Live
               </span>
             </div>
             <p className="text-xs text-gray-500 dark:text-gray-400">
-              Tổng hợp lượt gọi, token prompt, token sinh và hạn mức tất cả tài khoản
+              {t.analyticsSubtitle}
             </p>
           </div>
         </div>
@@ -193,7 +196,7 @@ export function AnalyticsWidget({ masked = false }: { masked?: boolean }) {
         <div className="flex items-center gap-2">
           {/* Time Window Tabs */}
           <div className="flex items-center bg-gray-100/80 dark:bg-gray-800/80 p-1 rounded-xl border border-gray-200/50 dark:border-gray-700/50 text-xs font-medium">
-            {WINDOW_TABS.map((tab) => {
+            {windowTabs.map((tab) => {
               const active = selectedWindow === tab.key;
               return (
                 <button
@@ -216,7 +219,7 @@ export function AnalyticsWidget({ masked = false }: { masked?: boolean }) {
           <button
             onClick={() => void fetchAnalytics()}
             disabled={isLoading}
-            title="Làm mới số liệu"
+            title={t.refreshAllUsage}
             className="p-1.5 rounded-lg border border-gray-200/80 dark:border-gray-700/80 bg-white dark:bg-gray-800 text-gray-600 dark:text-gray-300 hover:text-purple-600 dark:hover:text-purple-400 hover:bg-purple-50 dark:hover:bg-purple-950/30 transition-all disabled:opacity-50"
           >
             <svg
@@ -237,7 +240,7 @@ export function AnalyticsWidget({ masked = false }: { masked?: boolean }) {
           {/* Collapse/Expand Toggle */}
           <button
             onClick={handleToggleCollapse}
-            title={isCollapsed ? "Mở rộng" : "Thu gọn"}
+            title={isCollapsed ? "Expand" : "Collapse"}
             className="p-1.5 rounded-lg border border-gray-200/80 dark:border-gray-700/80 bg-white dark:bg-gray-800 text-gray-600 dark:text-gray-300 hover:bg-gray-50 dark:hover:bg-gray-700/50 transition-all"
           >
             <svg
@@ -261,7 +264,7 @@ export function AnalyticsWidget({ masked = false }: { masked?: boolean }) {
             <div className="p-4 rounded-xl border border-purple-100 dark:border-purple-900/40 bg-gradient-to-br from-purple-50/60 to-white dark:from-purple-950/30 dark:to-gray-800/60 shadow-xs relative overflow-hidden group">
               <div className="flex items-center justify-between mb-1">
                 <span className="text-xs font-semibold uppercase tracking-wider text-purple-700 dark:text-purple-300">
-                  Tổng Token Đã Dùng
+                  {t.totalTokensUsed}
                 </span>
                 <span className="text-purple-500 dark:text-purple-400">🔥</span>
               </div>
@@ -271,7 +274,7 @@ export function AnalyticsWidget({ masked = false }: { masked?: boolean }) {
                 </span>
               </div>
               <div className="mt-2 pt-2 border-t border-purple-100/60 dark:border-purple-900/40 flex items-center justify-between text-[11px] text-gray-500 dark:text-gray-400">
-                <span>Chính xác:</span>
+                <span>{t.exactCount}</span>
                 <span className="font-mono font-medium text-purple-700 dark:text-purple-300">
                   {formatExact(totalTokens)}
                 </span>
@@ -282,20 +285,20 @@ export function AnalyticsWidget({ masked = false }: { masked?: boolean }) {
             <div className="p-4 rounded-xl border border-blue-100 dark:border-blue-900/40 bg-gradient-to-br from-blue-50/60 to-white dark:from-blue-950/30 dark:to-gray-800/60 shadow-xs">
               <div className="flex items-center justify-between mb-1">
                 <span className="text-xs font-semibold uppercase tracking-wider text-blue-700 dark:text-blue-300">
-                  Phân Rã Token
+                  {t.tokenBreakdown}
                 </span>
                 <span className="text-blue-500 dark:text-blue-400">📥 📤</span>
               </div>
               <div className="space-y-1.5 mt-2">
                 <div className="flex items-center justify-between text-xs">
                   <span className="text-gray-600 dark:text-gray-400 flex items-center gap-1">
-                    <span className="w-2 h-2 rounded-full bg-blue-500"></span> Input:
+                    <span className="w-2 h-2 rounded-full bg-blue-500"></span> {t.inputTokens}:
                   </span>
                   <span className="font-bold text-gray-900 dark:text-white">{formatTokens(inputTokens)}</span>
                 </div>
                 <div className="flex items-center justify-between text-xs">
                   <span className="text-gray-600 dark:text-gray-400 flex items-center gap-1">
-                    <span className="w-2 h-2 rounded-full bg-emerald-500"></span> Output:
+                    <span className="w-2 h-2 rounded-full bg-emerald-500"></span> {t.outputTokens}:
                   </span>
                   <span className="font-bold text-emerald-600 dark:text-emerald-400">
                     {formatTokens(outputTokens)}
@@ -304,7 +307,7 @@ export function AnalyticsWidget({ masked = false }: { masked?: boolean }) {
                 {reasoningTokens > 0 && (
                   <div className="flex items-center justify-between text-[11px]">
                     <span className="text-gray-500 dark:text-gray-400 flex items-center gap-1">
-                      <span className="w-1.5 h-1.5 rounded-full bg-indigo-400"></span> Thinking:
+                      <span className="w-1.5 h-1.5 rounded-full bg-indigo-400"></span> {t.reasoningTokens}:
                     </span>
                     <span className="font-medium text-indigo-600 dark:text-indigo-300">
                       {formatTokens(reasoningTokens)}
@@ -318,7 +321,7 @@ export function AnalyticsWidget({ masked = false }: { masked?: boolean }) {
             <div className="p-4 rounded-xl border border-emerald-100 dark:border-emerald-900/40 bg-gradient-to-br from-emerald-50/60 to-white dark:from-emerald-950/30 dark:to-gray-800/60 shadow-xs">
               <div className="flex items-center justify-between mb-1">
                 <span className="text-xs font-semibold uppercase tracking-wider text-emerald-700 dark:text-emerald-300">
-                  Tỷ Lệ Cache Hit
+                  {t.cacheHitRate}
                 </span>
                 <span className="text-emerald-500 dark:text-emerald-400">⚡</span>
               </div>
@@ -327,7 +330,7 @@ export function AnalyticsWidget({ masked = false }: { masked?: boolean }) {
                   {cacheHitRate}%
                 </span>
                 <span className="text-xs text-emerald-700 dark:text-emerald-300 font-medium">
-                  đã tối ưu
+                  {t.optimized}
                 </span>
               </div>
               <div className="mt-2">
@@ -338,7 +341,7 @@ export function AnalyticsWidget({ masked = false }: { masked?: boolean }) {
                   ></div>
                 </div>
                 <div className="mt-1.5 flex items-center justify-between text-[11px] text-gray-500 dark:text-gray-400">
-                  <span>Tiết kiệm:</span>
+                  <span>{t.savedTokens}</span>
                   <span className="font-semibold text-emerald-600 dark:text-emerald-400">
                     {formatTokens(cachedTokens)} tokens
                   </span>
@@ -350,7 +353,7 @@ export function AnalyticsWidget({ masked = false }: { masked?: boolean }) {
             <div className="p-4 rounded-xl border border-amber-100 dark:border-amber-900/40 bg-gradient-to-br from-amber-50/60 to-white dark:from-amber-950/30 dark:to-gray-800/60 shadow-xs">
               <div className="flex items-center justify-between mb-1">
                 <span className="text-xs font-semibold uppercase tracking-wider text-amber-700 dark:text-amber-300">
-                  Lượt Chat (Turns)
+                  {t.totalTurns}
                 </span>
                 <span className="text-amber-500 dark:text-amber-400">💬</span>
               </div>
@@ -358,10 +361,10 @@ export function AnalyticsWidget({ masked = false }: { masked?: boolean }) {
                 <span className="text-2xl font-black text-gray-900 dark:text-white tracking-tight">
                   {turnsCount.toLocaleString()}
                 </span>
-                <span className="text-xs text-gray-500 dark:text-gray-400 font-medium">turns</span>
+                <span className="text-xs text-gray-500 dark:text-gray-400 font-medium">{t.turns}</span>
               </div>
               <div className="mt-2 pt-2 border-t border-amber-100/60 dark:border-amber-900/40 flex items-center justify-between text-[11px] text-gray-500 dark:text-gray-400">
-                <span>Trung bình / lượt:</span>
+                <span>{t.avgPerTurn}:</span>
                 <span className="font-semibold text-amber-700 dark:text-amber-300">
                   {formatTokens(avgPerTurn)}
                 </span>
@@ -378,14 +381,16 @@ export function AnalyticsWidget({ masked = false }: { masked?: boolean }) {
                   <div>
                     <div className="flex items-center gap-2">
                       <span className="text-xs font-bold uppercase tracking-wider text-indigo-900 dark:text-indigo-200">
-                        Tổng Quota Còn Lại Toàn Hệ Thống
+                        {t.systemQuotaPoolTitle}
                       </span>
                       <span className="px-2 py-0.5 rounded-full text-[10px] font-bold bg-indigo-100 dark:bg-indigo-900/60 text-indigo-700 dark:text-indigo-300 border border-indigo-200/50 dark:border-indigo-800/50">
-                        {quotaOverview.poolRemainingRate}% Dung lượng
+                        {quotaOverview.poolRemainingRate}% {t.capacityAvailable}
                       </span>
                     </div>
                     <p className="text-[11px] text-gray-500 dark:text-gray-400">
-                      Tổng cộng dồn % quota còn lại của toàn bộ {quotaOverview.totalAccounts} tài khoản (Mỗi tài khoản 100%)
+                      {lang === "vi"
+                        ? `Tổng cộng dồn % quota còn lại của toàn bộ ${quotaOverview.totalAccounts} tài khoản (Mỗi tài khoản 100%)`
+                        : `Cumulative remaining quota percentage across all ${quotaOverview.totalAccounts} accounts (100% per account)`}
                     </p>
                   </div>
                 </div>
@@ -400,7 +405,7 @@ export function AnalyticsWidget({ masked = false }: { masked?: boolean }) {
                     </span>
                   </div>
                   <span className="text-[11px] font-medium text-gray-500 dark:text-gray-400">
-                    (Đã dùng: {quotaOverview.totalUsedPercent}%)
+                    ({t.usedRate}: {quotaOverview.totalUsedPercent}%)
                   </span>
                 </div>
               </div>
@@ -417,28 +422,28 @@ export function AnalyticsWidget({ masked = false }: { masked?: boolean }) {
               <div className="flex flex-wrap items-center justify-between gap-2 pt-1 text-xs border-t border-indigo-100/60 dark:border-indigo-900/40">
                 <div className="flex flex-wrap items-center gap-1.5">
                   <span className="inline-flex items-center gap-1 px-2.5 py-0.5 rounded-md bg-emerald-100 dark:bg-emerald-900/40 text-emerald-700 dark:text-emerald-300 font-semibold text-[11px]">
-                    🟢 {quotaOverview.readyCount} Sẵn sàng 100%
+                    🟢 {quotaOverview.readyCount} {t.readyCount}
                   </span>
                   {quotaOverview.midCount > 0 && (
                     <span className="inline-flex items-center gap-1 px-2.5 py-0.5 rounded-md bg-blue-100 dark:bg-blue-900/40 text-blue-700 dark:text-blue-300 font-semibold text-[11px]">
-                      🟡 {quotaOverview.midCount} Đang dùng (21-80%)
+                      🟡 {quotaOverview.midCount} {t.midCount}
                     </span>
                   )}
                   {quotaOverview.highCount > 0 && (
                     <span className="inline-flex items-center gap-1 px-2.5 py-0.5 rounded-md bg-amber-100 dark:bg-amber-900/40 text-amber-700 dark:text-amber-300 font-semibold text-[11px]">
-                      🟠 {quotaOverview.highCount} Sắp hết (81-94%)
+                      🟠 {quotaOverview.highCount} {t.highCount}
                     </span>
                   )}
                   {quotaOverview.exhaustedCount > 0 && (
                     <span className="inline-flex items-center gap-1 px-2.5 py-0.5 rounded-md bg-red-100 dark:bg-red-900/40 text-red-700 dark:text-red-300 font-semibold text-[11px]">
-                      🔴 {quotaOverview.exhaustedCount} Hết limit (≥95%)
+                      🔴 {quotaOverview.exhaustedCount} {t.exhaustedCount}
                     </span>
                   )}
                 </div>
 
                 {quotaOverview.activeAccount && (
                   <span className="inline-flex items-center gap-1 text-[11px] text-purple-700 dark:text-purple-300 font-medium">
-                    ⚡ Active: <strong className="truncate max-w-[140px]"><BlurredText blur={masked}>{quotaOverview.activeAccount.name}</BlurredText></strong>
+                    ⚡ {t.activeLabel} <strong className="truncate max-w-[140px]"><BlurredText blur={masked}>{quotaOverview.activeAccount.name}</BlurredText></strong>
                   </span>
                 )}
               </div>
@@ -449,13 +454,13 @@ export function AnalyticsWidget({ masked = false }: { masked?: boolean }) {
                   <div className="flex items-center gap-1.5 truncate">
                     <span className="shrink-0">⏳</span>
                     <span>
-                      <strong className="font-semibold">Reset gần nhất:</strong>{" "}
-                      <BlurredText blur={masked}>{quotaOverview.earliestReset.account.name}</BlurredText> lúc{" "}
+                      <strong className="font-semibold">{t.earliestResetLabel}</strong>{" "}
+                      <BlurredText blur={masked}>{quotaOverview.earliestReset.account.name}</BlurredText> {lang === "vi" ? "lúc" : "at"}{" "}
                       <strong>{quotaOverview.earliestReset.timeFormatted}</strong>
                     </span>
                   </div>
                   <span className="shrink-0 font-bold px-2 py-0.5 rounded-md bg-indigo-100 dark:bg-indigo-900/60 text-indigo-700 dark:text-indigo-300 border border-indigo-200/60 dark:border-indigo-700/60 font-mono">
-                    sau {quotaOverview.earliestReset.durationText}
+                    {t.afterPrefix} {quotaOverview.earliestReset.durationText}
                   </span>
                 </div>
               )}
@@ -464,9 +469,9 @@ export function AnalyticsWidget({ masked = false }: { masked?: boolean }) {
 
           {/* Footer note */}
           <div className="flex items-center justify-between text-[11px] text-gray-400 dark:text-gray-500 pt-1">
-            <span>Dữ liệu được cập nhật tự động từ các phiên làm việc của Codex</span>
+            <span>{t.analyticsFooter}</span>
             {lastRefreshed && (
-              <span>Cập nhật lúc: {lastRefreshed.toLocaleTimeString("vi-VN")}</span>
+              <span>{t.lastUpdated}: {lastRefreshed.toLocaleTimeString(lang === "vi" ? "vi-VN" : "en-US")}</span>
             )}
           </div>
         </div>
