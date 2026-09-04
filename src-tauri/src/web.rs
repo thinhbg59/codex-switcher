@@ -305,7 +305,8 @@ fn serve_file(request: Request, path: PathBuf) -> anyhow::Result<()> {
 fn respond_json(request: Request, status: StatusCode, payload: &Value) -> anyhow::Result<()> {
     let response = Response::from_string(serde_json::to_string(payload)?)
         .with_status_code(status)
-        .with_header(header("Content-Type", "application/json; charset=utf-8")?);
+        .with_header(header("Content-Type", "application/json; charset=utf-8")?)
+        .with_header(header("Connection", "close")?);
     request.respond(response)?;
     Ok(())
 }
@@ -318,7 +319,8 @@ fn respond_text(
 ) -> anyhow::Result<()> {
     let response = Response::from_string(body.to_string())
         .with_status_code(status)
-        .with_header(header("Content-Type", content_type)?);
+        .with_header(header("Content-Type", content_type)?)
+        .with_header(header("Connection", "close")?);
     request.respond(response)?;
     Ok(())
 }

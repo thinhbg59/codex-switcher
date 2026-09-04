@@ -2839,6 +2839,12 @@ const server = http.createServer(async (req, res) => {
 
   // Proxy remaining /api/* calls to backend binary
   if (url.pathname.startsWith("/api/")) {
+    let bodyStr = "";
+    if (req.method === "POST" || req.method === "PUT" || req.method === "PATCH") {
+      const parsed = await parseRequestBody(req).catch(() => ({}));
+      bodyStr = JSON.stringify(parsed);
+    }
+
     const proxyReq = http.request(
       {
         hostname: "127.0.0.1",
@@ -2846,9 +2852,10 @@ const server = http.createServer(async (req, res) => {
         path: req.url,
         method: req.method,
         headers: {
-          ...req.headers,
-          host: `127.0.0.1:${BACKEND_PORT}`,
+          "content-type": "application/json",
+          "content-length": Buffer.byteLength(bodyStr),
           connection: "close",
+          host: `127.0.0.1:${BACKEND_PORT}`,
         },
       },
       (proxyRes) => {
@@ -2868,7 +2875,11 @@ const server = http.createServer(async (req, res) => {
       }
     });
 
-    req.pipe(proxyReq);
+    if (bodyStr) {
+      proxyReq.end(bodyStr);
+    } else {
+      proxyReq.end();
+    }
     return;
   }
 
