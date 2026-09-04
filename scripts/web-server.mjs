@@ -94,16 +94,26 @@ const MIME_TYPES = {
 // ==================== BACKEND INVOKER ====================
 
 async function invokeBackendApi(command, payload = {}) {
-  const res = await fetch(`http://127.0.0.1:${BACKEND_PORT}/api/invoke/${command}`, {
-    method: "POST",
-    headers: { "Content-Type": "application/json" },
-    body: JSON.stringify(payload),
-  });
-  if (!res.ok) {
-    const text = await res.text();
-    throw new Error(`API error (${res.status}): ${text}`);
+  const controller = new AbortController();
+  const timeout = setTimeout(() => controller.abort(), 8000);
+  try {
+    const res = await fetch(`http://127.0.0.1:${BACKEND_PORT}/api/invoke/${command}`, {
+      method: "POST",
+      headers: {
+        "Content-Type": "application/json",
+        "Connection": "close",
+      },
+      body: JSON.stringify(payload),
+      signal: controller.signal,
+    });
+    if (!res.ok) {
+      const text = await res.text();
+      throw new Error(`API error (${res.status}): ${text}`);
+    }
+    return await res.json();
+  } finally {
+    clearTimeout(timeout);
   }
-  return await res.json();
 }
 
 // ==================== NOTIFICATION CONFIG & HELPERS ====================
@@ -1178,8 +1188,10 @@ function findEarliestResetAccount(accountsWithUsage) {
 }
 
 async function getSystemQuotaOverview() {
-  const accounts = await invokeBackendApi("list_accounts").catch(() => []);
-  const active = await invokeBackendApi("get_active_account_info").catch(() => null);
+  const [accounts, active] = await Promise.all([
+    invokeBackendApi("list_accounts").catch(() => []),
+    invokeBackendApi("get_active_account_info").catch(() => null),
+  ]);
 
   let readyCount = 0; // <= 20% used
   let midCount = 0; // 21-80% used
@@ -1191,16 +1203,20 @@ async function getSystemQuotaOverview() {
   let totalUsedPercent = 0;
   const totalMaxPercent = accounts.length * 100;
 
+  const usageResults = await Promise.all(
+    accounts.map((acc) =>
+      invokeBackendApi("get_usage", { accountId: acc.id })
+        .then((usage) => ({ acc, usage }))
+        .catch(() => ({ acc, usage: null }))
+    )
+  );
+
   const accountsWithUsage = [];
-  for (const acc of accounts) {
-    let usage = null;
+  for (const { acc, usage } of usageResults) {
     let usedPercent = 0;
-    try {
-      usage = await invokeBackendApi("get_usage", { accountId: acc.id });
-      if (typeof usage?.primary_used_percent === "number") {
-        usedPercent = usage.primary_used_percent;
-      }
-    } catch {}
+    if (typeof usage?.primary_used_percent === "number") {
+      usedPercent = usage.primary_used_percent;
+    }
 
     const remainingPercent = Math.max(0, 100 - usedPercent);
     totalRemainingPercent += remainingPercent;
@@ -2426,30 +2442,54 @@ setInterval(() => {
   void ensureTailscaleRunning();
 }, 60 * 1000);
 
-console.log(`Starting backend from ${BINARY_PATH} on port ${BACKEND_PORT}...`);
-const backend = spawn(BINARY_PATH, [], {
-  env: {
-    ...process.env,
-    CODEX_SWITCHER_WEB_HOST: "127.0.0.1",
-    CODEX_SWITCHER_WEB_PORT: String(BACKEND_PORT),
-  },
-  stdio: ["ignore", "pipe", "pipe"],
-});
+let backend = null;
+let isShuttingDown = false;
 
-backend.stdout.on("data", (data) => {
-  process.stdout.write(`[backend] ${data}`);
-});
-backend.stderr.on("data", (data) => {
-  process.stderr.write(`[backend err] ${data}`);
-});
+function startBackendProcess() {
+  if (isShuttingDown) return;
+  console.log(`Starting backend from ${BINARY_PATH} on port ${BACKEND_PORT}...`);
+  backend = spawn(BINARY_PATH, [], {
+    env: {
+      ...process.env,
+      CODEX_SWITCHER_WEB_HOST: "127.0.0.1",
+      CODEX_SWITCHER_WEB_PORT: String(BACKEND_PORT),
+    },
+    stdio: ["ignore", "pipe", "pipe"],
+  });
+
+  backend.stdout.on("data", (data) => {
+    process.stdout.write(`[backend] ${data}`);
+  });
+  backend.stderr.on("data", (data) => {
+    process.stderr.write(`[backend err] ${data}`);
+  });
+
+  backend.on("exit", (code, signal) => {
+    console.error(`[backend] Process exited with code ${code}, signal ${signal}`);
+    if (!isShuttingDown) {
+      console.log("[backend] Restarting backend process in 2 seconds...");
+      setTimeout(startBackendProcess, 2000);
+    }
+  });
+
+  backend.on("error", (err) => {
+    console.error("[backend] Process error:", err.message);
+  });
+}
+
+startBackendProcess();
 
 function cleanup() {
-  backend.kill();
+  isShuttingDown = true;
+  if (backend) backend.kill();
   process.exit(0);
 }
 process.on("SIGINT", cleanup);
 process.on("SIGTERM", cleanup);
-process.on("exit", () => backend.kill());
+process.on("exit", () => {
+  isShuttingDown = true;
+  if (backend) backend.kill();
+});
 
 // Helper to parse JSON body
 function parseRequestBody(req) {
@@ -2789,6 +2829,7 @@ const server = http.createServer(async (req, res) => {
         headers: {
           ...req.headers,
           host: `127.0.0.1:${BACKEND_PORT}`,
+          connection: "close",
         },
       },
       (proxyRes) => {
@@ -2797,9 +2838,15 @@ const server = http.createServer(async (req, res) => {
       }
     );
 
+    proxyReq.setTimeout(10000, () => {
+      proxyReq.destroy(new Error("Backend proxy request timed out"));
+    });
+
     proxyReq.on("error", (err) => {
-      res.writeHead(502, { "Content-Type": "application/json" });
-      res.end(JSON.stringify({ error: `Backend connection failed: ${err.message}` }));
+      if (!res.headersSent) {
+        res.writeHead(502, { "Content-Type": "application/json" });
+        res.end(JSON.stringify({ error: `Backend connection failed: ${err.message}` }));
+      }
     });
 
     req.pipe(proxyReq);
