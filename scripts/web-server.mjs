@@ -91,11 +91,14 @@ const MIME_TYPES = {
   ".webp": "image/webp",
 };
 
-// ==================== BACKEND INVOKER ====================
+// ==================== BACKEND INVOKER & USAGE CACHE ====================
+
+const usageCache = new Map();
+const USAGE_CACHE_TTL = 20 * 1000;
 
 async function invokeBackendApi(command, payload = {}) {
   const controller = new AbortController();
-  const timeout = setTimeout(() => controller.abort(), 8000);
+  const timeout = setTimeout(() => controller.abort(), 25000);
   try {
     const res = await fetch(`http://127.0.0.1:${BACKEND_PORT}/api/invoke/${command}`, {
       method: "POST",
@@ -113,6 +116,22 @@ async function invokeBackendApi(command, payload = {}) {
     return await res.json();
   } finally {
     clearTimeout(timeout);
+  }
+}
+
+async function getCachedUsage(accountId, forceRefresh = false) {
+  const now = Date.now();
+  const cached = usageCache.get(accountId);
+  if (!forceRefresh && cached && now - cached.time < USAGE_CACHE_TTL) {
+    return cached.usage;
+  }
+  try {
+    const usage = await invokeBackendApi("get_usage", { accountId });
+    usageCache.set(accountId, { usage, time: now });
+    return usage;
+  } catch (err) {
+    if (cached) return cached.usage;
+    throw err;
   }
 }
 
@@ -1205,7 +1224,7 @@ async function getSystemQuotaOverview() {
 
   const usageResults = await Promise.all(
     accounts.map((acc) =>
-      invokeBackendApi("get_usage", { accountId: acc.id })
+      getCachedUsage(acc.id)
         .then((usage) => ({ acc, usage }))
         .catch(() => ({ acc, usage: null }))
     )
@@ -2838,7 +2857,7 @@ const server = http.createServer(async (req, res) => {
       }
     );
 
-    proxyReq.setTimeout(10000, () => {
+    proxyReq.setTimeout(30000, () => {
       proxyReq.destroy(new Error("Backend proxy request timed out"));
     });
 
