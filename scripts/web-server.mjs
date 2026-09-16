@@ -649,6 +649,63 @@ function detectPaseoQuotaErrors() {
 
 let lastHandledPaseoErrors = {};
 
+async function pickBestAlternativeAccount(otherAccounts) {
+  if (!otherAccounts || otherAccounts.length === 0) {
+    throw new Error("Không có tài khoản khác để chuyển đổi.");
+  }
+
+  const candidatesWithUsage = [];
+  for (const acc of otherAccounts) {
+    try {
+      const u = await invokeBackendApi("get_usage", { accountId: acc.id });
+      const primaryUsed = typeof u?.primary_used_percent === "number" ? u.primary_used_percent : 0;
+      const secondaryUsed = typeof u?.secondary_used_percent === "number" ? u.secondary_used_percent : null;
+      const isWeeklyExhausted = secondaryUsed !== null && secondaryUsed >= 95;
+
+      candidatesWithUsage.push({
+        account: acc,
+        usage: u,
+        used: primaryUsed,
+        primaryUsed,
+        secondaryUsed,
+        isWeeklyExhausted,
+        resets_at: u?.primary_resets_at || null,
+      });
+    } catch {
+      candidatesWithUsage.push({
+        account: acc,
+        usage: null,
+        used: 100,
+        primaryUsed: 100,
+        secondaryUsed: 100,
+        isWeeklyExhausted: true,
+        resets_at: null,
+      });
+    }
+  }
+
+  // 1. Filter out all accounts whose weekly quota (7 days) is exhausted!
+  const weeklyAvailable = candidatesWithUsage.filter((c) => !c.isWeeklyExhausted);
+  if (weeklyAvailable.length === 0) {
+    throw new Error(
+      "Tất cả các tài khoản khác đều đã hết quota tuần (7 ngày). Không chuyển sang tài khoản hết quota tuần."
+    );
+  }
+
+  // 2. Sort by lowest 5-hour used, then lowest weekly used as tie-breaker
+  weeklyAvailable.sort((a, b) => a.used - b.used || (a.secondaryUsed ?? 0) - (b.secondaryUsed ?? 0));
+
+  // 3. Strict check: if all weekly-available candidates are currently exhausted on 5-hour quota (>=95% used), do NOT switch
+  if (weeklyAvailable[0] && weeklyAvailable[0].used >= 95) {
+    const earliest = findEarliestResetAccount(weeklyAvailable);
+    throw new Error(
+      `Tất cả tài khoản còn limit tuần đều đang hết quota 5-hour (${weeklyAvailable[0].used}% used). Acc reset sớm nhất: ${earliest ? `${earliest.account.name} lúc ${earliest.timeFormatted} (${earliest.durationText})` : "Chưa xác định"}`
+    );
+  }
+
+  return weeklyAvailable[0]?.account || null;
+}
+
 async function switchAccountAndRestartPaseo(targetAccountId = null, forceRestartApp = false) {
   const allAccounts = await invokeBackendApi("list_accounts").catch(() => []);
   const activeAccount = await invokeBackendApi("get_active_account_info").catch(() => null);
@@ -657,35 +714,8 @@ async function switchAccountAndRestartPaseo(targetAccountId = null, forceRestart
   if (targetAccountId) {
     target = allAccounts.find((a) => a.id === targetAccountId);
   } else {
-    // Pick best alternative account
     const otherAccounts = allAccounts.filter((a) => a.id !== activeAccount?.id);
-    if (otherAccounts.length === 0) {
-      throw new Error("Không có tài khoản khác để chuyển đổi.");
-    }
-    const candidatesWithUsage = [];
-    for (const acc of otherAccounts) {
-      try {
-        const u = await invokeBackendApi("get_usage", { accountId: acc.id });
-        candidatesWithUsage.push({
-          account: acc,
-          usage: u,
-          used: typeof u?.primary_used_percent === "number" ? u.primary_used_percent : 0,
-          resets_at: u?.primary_resets_at || null,
-        });
-      } catch {
-        candidatesWithUsage.push({ account: acc, usage: null, used: 100, resets_at: null });
-      }
-    }
-    candidatesWithUsage.sort((a, b) => a.used - b.used);
-
-    // Strict check: if all candidates are exhausted (>=95% used), do NOT switch or spam
-    if (candidatesWithUsage[0] && candidatesWithUsage[0].used >= 95) {
-      const earliest = findEarliestResetAccount(candidatesWithUsage);
-      throw new Error(
-        `Tất cả tài khoản đều đã hết quota 5-hour (${candidatesWithUsage[0].used}% used). Acc reset sớm nhất: ${earliest ? `${earliest.account.name} lúc ${earliest.timeFormatted} (${earliest.durationText})` : "Chưa xác định"}`
-      );
-    }
-    target = candidatesWithUsage[0]?.account;
+    target = await pickBestAlternativeAccount(otherAccounts);
   }
 
   if (!target) {
@@ -723,35 +753,8 @@ async function hotReloadAccountForPaseo(targetAccountId = null) {
   if (targetAccountId) {
     target = allAccounts.find((a) => a.id === targetAccountId);
   } else {
-    // Pick best alternative account
     const otherAccounts = allAccounts.filter((a) => a.id !== activeAccount?.id);
-    if (otherAccounts.length === 0) {
-      throw new Error("Không có tài khoản khác để chuyển đổi.");
-    }
-    const candidatesWithUsage = [];
-    for (const acc of otherAccounts) {
-      try {
-        const u = await invokeBackendApi("get_usage", { accountId: acc.id });
-        candidatesWithUsage.push({
-          account: acc,
-          usage: u,
-          used: typeof u?.primary_used_percent === "number" ? u.primary_used_percent : 0,
-          resets_at: u?.primary_resets_at || null,
-        });
-      } catch {
-        candidatesWithUsage.push({ account: acc, usage: null, used: 100, resets_at: null });
-      }
-    }
-    candidatesWithUsage.sort((a, b) => a.used - b.used);
-
-    // Strict check: if all candidates are exhausted (>=95% used), do NOT switch or spam
-    if (candidatesWithUsage[0] && candidatesWithUsage[0].used >= 95) {
-      const earliest = findEarliestResetAccount(candidatesWithUsage);
-      throw new Error(
-        `Tất cả tài khoản đều đã hết quota 5-hour (${candidatesWithUsage[0].used}% used). Acc reset sớm nhất: ${earliest ? `${earliest.account.name} lúc ${earliest.timeFormatted} (${earliest.durationText})` : "Chưa xác định"}`
-      );
-    }
-    target = candidatesWithUsage[0]?.account;
+    target = await pickBestAlternativeAccount(otherAccounts);
   }
 
   if (!target) {
@@ -798,14 +801,14 @@ async function autoResumePaseoTask({ targetAgentId = null, targetAccountId = nul
   // 1. ANTI-SPAM SAFEGUARD: Check if ALL accounts are exhausted before attempting any reload or switch
   if (!targetAccountId) {
     const overview = await getSystemQuotaOverview().catch(() => null);
-    if (overview && overview.accounts.every((a) => a.used_percent >= 95)) {
+    if (overview && overview.accounts.every((a) => a.used_percent >= 95 || a.is_weekly_exhausted)) {
       const earliest = overview.earliestReset;
-      console.log(`[PaseoAutoResume] 🛑 ALL accounts are exhausted (0% remaining). Pausing auto-resume. Earliest reset: ${earliest?.account.name || "N/A"} (${earliest?.durationText || "N/A"}).`);
+      console.log(`[PaseoAutoResume] 🛑 ALL accounts are exhausted or out of weekly limit. Pausing auto-resume. Earliest reset: ${earliest?.account.name || "N/A"} (${earliest?.durationText || "N/A"}).`);
       await notifyAllAccountsExhausted(overview, config);
       return {
         ok: false,
         error: "all_accounts_exhausted",
-        message: `Tất cả tài khoản đều đã hết hạn mức 5-hour (0% quota). Đã tự động tạm dừng xoay tua để tránh spam. Acc reset sớm nhất: ${earliest ? `${earliest.account.name} lúc ${earliest.timeFormatted} (sau ${earliest.durationText})` : "Chưa xác định"}`,
+        message: `Tất cả tài khoản đều đã hết hạn mức 5-hour hoặc hết quota tuần (7 ngày). Đã tự động tạm dừng xoay tua để tránh spam. Acc reset sớm nhất: ${earliest ? `${earliest.account.name} lúc ${earliest.timeFormatted} (sau ${earliest.durationText})` : "Chưa xác định"}`,
         earliestReset: earliest,
       };
     }
@@ -952,7 +955,7 @@ setInterval(async () => {
     const overview = await getSystemQuotaOverview().catch(() => null);
     if (!overview || overview.totalAccounts === 0) return;
 
-    const allExhausted = overview.accounts.every((a) => a.used_percent >= 95);
+    const allExhausted = overview.accounts.every((a) => a.used_percent >= 95 || a.is_weekly_exhausted);
 
     // CASE 1: All accounts are exhausted -> mark wasAllExhausted and track errored tabs
     if (allExhausted) {
@@ -969,8 +972,8 @@ setInterval(async () => {
     // CASE 2: Quota has RECOVERED after being all-exhausted!
     if (wasAllExhausted && !allExhausted) {
       wasAllExhausted = false;
-      const availableCandidates = overview.accounts.filter((a) => a.used_percent < 95);
-      availableCandidates.sort((a, b) => a.used_percent - b.used_percent);
+      const availableCandidates = overview.accounts.filter((a) => !a.is_weekly_exhausted && a.used_percent < 95);
+      availableCandidates.sort((a, b) => a.used_percent - b.used_percent || (a.secondary_used_percent ?? 0) - (b.secondary_used_percent ?? 0));
       const bestCandidate = availableCandidates[0];
 
       if (bestCandidate) {
@@ -1199,7 +1202,12 @@ setInterval(() => {
 function findEarliestResetAccount(accountsWithUsage) {
   if (!Array.isArray(accountsWithUsage)) return null;
   const nowSec = Math.floor(Date.now() / 1000);
-  const valid = accountsWithUsage.filter((a) => typeof a.resets_at === "number" && a.resets_at > nowSec);
+
+  // Filter to accounts that still have weekly limit remaining (only waiting for 5-hour reset)
+  const weeklyUsable = accountsWithUsage.filter((a) => !a.isWeeklyExhausted && !a.is_weekly_exhausted);
+  const pool = weeklyUsable.length > 0 ? weeklyUsable : accountsWithUsage;
+
+  const valid = pool.filter((a) => typeof a.resets_at === "number" && a.resets_at > nowSec);
   if (valid.length === 0) return null;
   valid.sort((a, b) => a.resets_at - b.resets_at);
   const earliest = valid[0];
@@ -1211,11 +1219,12 @@ function findEarliestResetAccount(accountsWithUsage) {
   const timeStr = d.toLocaleTimeString("vi-VN", { hour: "2-digit", minute: "2-digit" });
   const dateStr = d.toLocaleDateString("vi-VN", { day: "2-digit", month: "2-digit" });
 
+  const accountInfo = earliest.account || earliest;
   return {
     account: {
-      id: earliest.id,
-      name: earliest.name,
-      email: earliest.email,
+      id: accountInfo.id,
+      name: accountInfo.name,
+      email: accountInfo.email,
     },
     resets_at: earliest.resets_at,
     timeFormatted: `${timeStr} ngày ${dateStr}`,
@@ -1250,20 +1259,21 @@ async function getSystemQuotaOverview() {
 
   const accountsWithUsage = [];
   for (const { acc, usage } of usageResults) {
-    let usedPercent = 0;
-    if (typeof usage?.primary_used_percent === "number") {
-      usedPercent = usage.primary_used_percent;
-    }
+    const primaryUsed = typeof usage?.primary_used_percent === "number" ? usage.primary_used_percent : 0;
+    const secondaryUsed = typeof usage?.secondary_used_percent === "number" ? usage.secondary_used_percent : null;
+    const isWeeklyExhausted = secondaryUsed !== null && secondaryUsed >= 95;
 
-    const remainingPercent = Math.max(0, 100 - usedPercent);
+    // If weekly limit (7 days) is exhausted, account is unusable (treated as 100% used, 0% remaining)
+    const effectiveUsedPercent = isWeeklyExhausted ? 100 : primaryUsed;
+    const remainingPercent = Math.max(0, 100 - effectiveUsedPercent);
     totalRemainingPercent += remainingPercent;
-    totalUsedPercent += usedPercent;
-    sumUsed += usedPercent;
+    totalUsedPercent += effectiveUsedPercent;
+    sumUsed += effectiveUsedPercent;
     validUsageCount++;
 
-    if (usedPercent <= 20) readyCount++;
-    else if (usedPercent <= 80) midCount++;
-    else if (usedPercent < 95) highCount++;
+    if (effectiveUsedPercent <= 20) readyCount++;
+    else if (effectiveUsedPercent <= 80) midCount++;
+    else if (effectiveUsedPercent < 95) highCount++;
     else exhaustedCount++;
 
     accountsWithUsage.push({
@@ -1272,9 +1282,14 @@ async function getSystemQuotaOverview() {
       email: acc.email,
       plan_type: acc.plan_type,
       is_active: acc.is_active,
-      used_percent: usedPercent,
+      used_percent: effectiveUsedPercent,
+      primary_used_percent: primaryUsed,
+      secondary_used_percent: secondaryUsed,
+      is_weekly_exhausted: isWeeklyExhausted,
       remaining_percent: remainingPercent,
-      resets_at: usage?.primary_resets_at || null,
+      resets_at: isWeeklyExhausted ? (usage?.secondary_resets_at || null) : (usage?.primary_resets_at || null),
+      primary_resets_at: usage?.primary_resets_at || null,
+      secondary_resets_at: usage?.secondary_resets_at || null,
     });
   }
 
@@ -1420,11 +1435,11 @@ async function checkLowQuotaAndNotify() {
     const overview = await getSystemQuotaOverview().catch(() => null);
     if (!overview || overview.totalAccounts === 0) return;
 
-    const allExhausted = overview.accounts.every((a) => a.used_percent >= 95);
+    const allExhausted = overview.accounts.every((a) => a.used_percent >= 95 || a.is_weekly_exhausted);
 
     // 1. ALL ACCOUNTS EXHAUSTED CHECK (Anti-Spam & Global Alert)
     if (allExhausted) {
-      console.log(`[QuotaMonitor] 🛑 ALL ${overview.totalAccounts} accounts are exhausted (0% remaining).`);
+      console.log(`[QuotaMonitor] 🛑 ALL ${overview.totalAccounts} accounts are exhausted (0% remaining or weekly limit full).`);
       await notifyAllAccountsExhausted(overview, config);
       return;
     }
@@ -1445,8 +1460,8 @@ async function checkLowQuotaAndNotify() {
     const autoSwitchThreshold = config.autoSwitch?.threshold || 95;
 
     if (config.autoSwitch?.enabled && used >= autoSwitchThreshold) {
-      const otherCandidates = overview.accounts.filter((a) => a.id !== activeAccount.id && a.used_percent < autoSwitchThreshold);
-      otherCandidates.sort((a, b) => a.used_percent - b.used_percent);
+      const otherCandidates = overview.accounts.filter((a) => a.id !== activeAccount.id && !a.is_weekly_exhausted && a.used_percent < autoSwitchThreshold);
+      otherCandidates.sort((a, b) => a.used_percent - b.used_percent || (a.secondary_used_percent ?? 0) - (b.secondary_used_percent ?? 0));
       const bestCandidate = otherCandidates[0];
 
       if (bestCandidate) {
@@ -1826,23 +1841,42 @@ async function sendAccountsListMessage(botToken, chatId) {
     const used = typeof usageInfo?.primary_used_percent === "number" ? usageInfo.primary_used_percent : null;
     const remaining = used !== null ? Math.max(0, 100 - used) : null;
     const resetText = formatResetDuration(usageInfo?.primary_resets_at);
+    const used7d = typeof usageInfo?.secondary_used_percent === "number" ? usageInfo.secondary_used_percent : null;
+    const isWeeklyExhausted = used7d !== null && used7d >= 95;
+    const reset7dText = formatResetDuration(usageInfo?.secondary_resets_at);
 
     if (acc.is_active) {
       textLines.push(`🟢 *${num}. ${acc.name}* [ACTIVE]`);
       if (used !== null) {
-        textLines.push(`   📊 Đã dùng: *${used.toFixed(0)}%* (Còn: ${remaining.toFixed(0)}%)${resetText ? ` | Reset: ${resetText}` : ""}\n`);
+        textLines.push(`   📊 5h: *${used.toFixed(0)}%* (Còn: ${remaining.toFixed(0)}%)${resetText ? ` | Reset: ${resetText}` : ""}`);
       }
+      if (used7d !== null) {
+        textLines.push(`   📈 7d: *${used7d.toFixed(0)}%*${isWeeklyExhausted ? " ❌ *[HẾT QUOTA TUẦN]*" : ""}${reset7dText ? ` | Reset: ${reset7dText}` : ""}`);
+      }
+      textLines.push("");
       inlineButtons.push([{ text: `🟢 ${num}. ${acc.name} (Active)`, callback_data: `switch:${acc.id}` }]);
     } else {
-      textLines.push(`⚪ *${num}. ${acc.name}*`);
-      if (used !== null) {
-        textLines.push(`   📊 Đã dùng: *${used.toFixed(0)}%* (Còn: ${remaining.toFixed(0)}%)${resetText ? ` | Reset: ${resetText}` : ""}\n`);
+      if (isWeeklyExhausted) {
+        textLines.push(`🔴 *${num}. ${acc.name}* [HẾT QUOTA TUẦN 7D - ${used7d.toFixed(0)}%]`);
+        textLines.push(`   ⚠️ Đã hết quota tuần (không thể tự chuyển vào acc này)${reset7dText ? ` | Reset: ${reset7dText}` : ""}\n`);
+        inlineButtons.push([
+          { text: `🔴 ${num}. ${acc.name} (Hết tuần 7d)`, callback_data: `switch:${acc.id}` },
+        ]);
+      } else {
+        textLines.push(`⚪ *${num}. ${acc.name}*`);
+        if (used !== null) {
+          textLines.push(`   📊 5h: *${used.toFixed(0)}%* (Còn: ${remaining.toFixed(0)}%)${resetText ? ` | Reset: ${resetText}` : ""}`);
+        }
+        if (used7d !== null) {
+          textLines.push(`   📈 7d: *${used7d.toFixed(0)}%*${reset7dText ? ` | Reset: ${reset7dText}` : ""}`);
+        }
+        textLines.push("");
+        const shortTitle = `🔄 ${num}. ${acc.name}${used !== null ? ` (${used.toFixed(0)}%)` : ""}`;
+        inlineButtons.push([
+          { text: shortTitle, callback_data: `switch:${acc.id}` },
+          { text: "⚡ + Paseo", callback_data: `switch_restart:${acc.id}` },
+        ]);
       }
-      const shortTitle = `🔄 ${num}. ${acc.name}${used !== null ? ` (${used.toFixed(0)}%)` : ""}`;
-      inlineButtons.push([
-        { text: shortTitle, callback_data: `switch:${acc.id}` },
-        { text: "⚡ + Paseo", callback_data: `switch_restart:${acc.id}` },
-      ]);
     }
   }
 
