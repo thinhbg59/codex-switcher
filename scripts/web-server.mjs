@@ -160,6 +160,7 @@ function readNotificationConfig() {
         },
         autoResumePaseo: data.autoResumePaseo !== undefined ? Boolean(data.autoResumePaseo) : true,
         resumePrompt: typeof data.resumePrompt === "string" && data.resumePrompt.trim() ? data.resumePrompt.trim() : "tiếp tục",
+        smartResumeMode: ["smart", "compact", "custom"].includes(data.smartResumeMode) ? data.smartResumeMode : "smart",
       };
     }
   } catch (err) {
@@ -173,6 +174,7 @@ function readNotificationConfig() {
     autoSwitch: { enabled: false, threshold: 95 },
     autoResumePaseo: true,
     resumePrompt: "tiếp tục",
+    smartResumeMode: "smart",
   };
 }
 
@@ -289,23 +291,23 @@ async function sendNtfyNotification({ server = "https://ntfy.sh", topic, title, 
 }
 
 function generateSmartResumePrompt(agentData = {}, mode = "smart", customPrompt = null) {
-  if (customPrompt && typeof customPrompt === "string" && customPrompt.trim()) {
-    return customPrompt.trim();
-  }
-  const cleanTitle = (agentData?.title || "").replace(/[\r\n\t]+/g, " ").trim();
-
   if (mode === "compact") {
     return "tiếp tục (chỉ xuất code/diff sửa đổi, không giải thích lý thuyết)";
   }
 
-  if (mode === "smart" || !mode) {
-    if (cleanTitle && cleanTitle.length > 3 && cleanTitle !== "Cuộc trò chuyện Paseo") {
-      return `Tập trung hoàn thành tiếp nhiệm vụ: "${cleanTitle}". Chỉ xuất code sửa đổi cần thiết, không giải thích dông dài và không đọc lại các file đã hoàn thành.`;
+  if (mode === "custom") {
+    if (customPrompt && typeof customPrompt === "string" && customPrompt.trim()) {
+      return customPrompt.trim();
     }
-    return "Tập trung hoàn thành tiếp phần việc đang dở. Chỉ chỉnh sửa code cần thiết, không giải thích dài dòng và không đọc lại file cũ.";
+    return "tiếp tục";
   }
 
-  return "tiếp tục";
+  // mode === "smart" or default
+  const cleanTitle = (agentData?.title || "").replace(/[\r\n\t]+/g, " ").trim();
+  if (cleanTitle && cleanTitle.length > 3 && cleanTitle !== "Cuộc trò chuyện Paseo") {
+    return `Tập trung hoàn thành tiếp nhiệm vụ: "${cleanTitle}". Chỉ xuất code sửa đổi cần thiết, không giải thích dông dài và không đọc lại các file đã hoàn thành.`;
+  }
+  return "Tập trung hoàn thành tiếp phần việc đang dở. Chỉ chỉnh sửa code cần thiết, không giải thích dài dòng và không đọc lại file cũ.";
 }
 
 const sessionMetricsCache = new Map();
@@ -784,8 +786,14 @@ async function hotReloadAccountForPaseo(targetAccountId = null) {
   };
 }
 
-async function autoResumePaseoTask({ targetAgentId = null, targetAccountId = null, promptMessage = null, restartPaseo = false } = {}) {
+async function autoResumePaseoTask({ targetAgentId = null, targetAccountId = null, promptMessage = null, restartPaseo = false, forceResume = false } = {}) {
   const config = readNotificationConfig();
+
+  // If autoResumePaseo is disabled and this is not a manual/forced action, skip
+  if (!config.autoResumePaseo && !targetAgentId && !promptMessage && !forceResume) {
+    console.log("[PaseoAutoResume] autoResumePaseo is disabled in config. Skipping auto-resume.");
+    return { ok: false, skipped: true, message: "autoResumePaseo is disabled" };
+  }
 
   // 1. ANTI-SPAM SAFEGUARD: Check if ALL accounts are exhausted before attempting any reload or switch
   if (!targetAccountId) {
@@ -838,13 +846,16 @@ async function autoResumePaseoTask({ targetAgentId = null, targetAccountId = nul
 
   // 4. Send prompt to ALL errored agents
   const results = [];
+  const effectiveMode = promptMessage ? "custom" : (config.smartResumeMode || "smart");
+  const effectiveCustomPrompt = promptMessage || config.resumePrompt;
+
   for (const agent of targetAgents) {
     if (!agent.id) continue;
     let messageSent = false;
     let sendError = null;
-    const agentPrompt = generateSmartResumePrompt(agent, config.smartResumeMode || "smart", promptMessage);
+    const agentPrompt = generateSmartResumePrompt(agent, effectiveMode, effectiveCustomPrompt);
     try {
-      console.log(`[PaseoAutoResume] Sending prompt "${agentPrompt}" to agent ${agent.id} (${agent.title || ""})...`);
+      console.log(`[PaseoAutoResume] Sending prompt (${effectiveMode}) "${agentPrompt}" to agent ${agent.id} (${agent.title || ""})...`);
       await execAsync(`"${PASEO_CLI_PATH}" send ${agent.id} "${agentPrompt.replace(/"/g, '\\"')}" --no-wait`);
       messageSent = true;
       console.log(`[PaseoAutoResume] Prompt sent successfully to agent ${agent.id}`);
@@ -858,11 +869,12 @@ async function autoResumePaseoTask({ targetAgentId = null, targetAccountId = nul
 
   // 5. Notify via Telegram & ntfy
   if (config.telegram?.enabled && config.telegram?.botToken && config.telegram?.chatId) {
+    const modeLabel = (effectiveMode === "compact") ? "COMPACT" : (effectiveMode === "custom" ? "CUSTOM" : "SMART RESUME");
     const resumedListText = results.length > 0
       ? results.map((r, i) => `${i + 1}. \`${r.agent.title || r.agent.id}\`\n   💬 _Prompt:_ "${r.promptSent}"`).join("\n")
       : "_Tất cả các tab_";
 
-    const tgMsg = `🚀 *ĐÃ TỰ ĐỘNG KHÔI PHỤC ${results.length} CUỘC TRÒ CHUYỆN TRÊN PASEO (SMART RESUME)!*\n\n📝 *Các tab được tiếp tục:*\n${resumedListText}\n\n✅ *Tài khoản mới:* \`${switchedTo.name}\` (Còn *${newRemaining.toFixed(0)}%* quota)\n\n👉 _Paseo đang tiếp tục xử lý song song tất cả các tab!_`;
+    const tgMsg = `🚀 *ĐÃ TỰ ĐỘNG KHÔI PHỤC ${results.length} CUỘC TRÒ CHUYỆN TRÊN PASEO (${modeLabel})!*\n\n📝 *Các tab được tiếp tục:*\n${resumedListText}\n\n✅ *Tài khoản mới:* \`${switchedTo.name}\` (Còn *${newRemaining.toFixed(0)}%* quota)\n\n👉 _Paseo đang tiếp tục xử lý song song tất cả các tab!_`;
 
     await sendTelegramNotification({
       botToken: config.telegram.botToken,
@@ -945,9 +957,11 @@ setInterval(async () => {
     // CASE 1: All accounts are exhausted -> mark wasAllExhausted and track errored tabs
     if (allExhausted) {
       wasAllExhausted = true;
-      const errored = detectPaseoQuotaErrors();
-      for (const a of errored) {
-        pendingPausedAgentIds.add(a.id);
+      if (config.autoResumePaseo) {
+        const errored = detectPaseoQuotaErrors();
+        for (const a of errored) {
+          pendingPausedAgentIds.add(a.id);
+        }
       }
       return;
     }
@@ -962,39 +976,43 @@ setInterval(async () => {
       if (bestCandidate) {
         console.log(`[QuotaRecovery] 🎉 Quota has reset on account ${bestCandidate.name} (${bestCandidate.used_percent}% used). Resuming pending Paseo tabs...`);
 
-        const currentErrored = detectPaseoQuotaErrors();
-        for (const a of currentErrored) {
-          pendingPausedAgentIds.add(a.id);
-        }
-
-        const agentIdsToResume = Array.from(pendingPausedAgentIds);
-        pendingPausedAgentIds.clear();
-
-        if (agentIdsToResume.length > 0) {
-          // Switch to best candidate & reload Paseo worker in-place
-          await hotReloadAccountForPaseo(bestCandidate.id);
-
-          let resumedCount = 0;
-          for (const agentId of agentIdsToResume) {
-            try {
-              const agent = currentErrored.find((t) => t.id === agentId) || { id: agentId, title: "Paseo Agent" };
-              const prompt = generateSmartResumePrompt(agent, config.smartResumeMode || "smart");
-              await execAsync(`"${PASEO_CLI_PATH}" send ${agentId} "${prompt.replace(/"/g, '\\"')}" --no-wait`);
-              lastHandledPaseoErrors[agentId] = Date.now();
-              resumedCount++;
-            } catch (err) {
-              console.error(`[QuotaRecovery] Failed to resume agent ${agentId}:`, err.message);
-            }
+        if (config.autoResumePaseo) {
+          const currentErrored = detectPaseoQuotaErrors();
+          for (const a of currentErrored) {
+            pendingPausedAgentIds.add(a.id);
           }
 
-          console.log(`[QuotaRecovery] Successfully auto-resumed ${resumedCount} tab(s) with account ${bestCandidate.name}`);
-          await notifyQuotaRecoveredAndResumed(bestCandidate, resumedCount, config);
-          return;
+          const agentIdsToResume = Array.from(pendingPausedAgentIds);
+          pendingPausedAgentIds.clear();
+
+          if (agentIdsToResume.length > 0) {
+            // Switch to best candidate & reload Paseo worker in-place
+            await hotReloadAccountForPaseo(bestCandidate.id);
+
+            let resumedCount = 0;
+            for (const agentId of agentIdsToResume) {
+              try {
+                const agent = currentErrored.find((t) => t.id === agentId) || { id: agentId, title: "Paseo Agent" };
+                const prompt = generateSmartResumePrompt(agent, config.smartResumeMode || "smart", config.resumePrompt);
+                await execAsync(`"${PASEO_CLI_PATH}" send ${agentId} "${prompt.replace(/"/g, '\\"')}" --no-wait`);
+                lastHandledPaseoErrors[agentId] = Date.now();
+                resumedCount++;
+              } catch (err) {
+                console.error(`[QuotaRecovery] Failed to resume agent ${agentId}:`, err.message);
+              }
+            }
+
+            console.log(`[QuotaRecovery] Successfully auto-resumed ${resumedCount} tab(s) with account ${bestCandidate.name}`);
+            await notifyQuotaRecoveredAndResumed(bestCandidate, resumedCount, config);
+            return;
+          }
         }
       }
     }
 
     // CASE 3: Normal background detection for newly errored tabs when accounts ARE available
+    if (!config.autoResumePaseo) return;
+
     const errored = detectPaseoQuotaErrors();
     if (errored.length === 0) return;
 
@@ -1941,14 +1959,25 @@ async function performSwitchAndRestartPaseoNotify(botToken, chatId, accountId = 
 async function performAutoResumePaseoNotify(botToken, chatId, targetAgentId = null, promptMessage = null) {
   try {
     const config = readNotificationConfig();
-    const effectivePrompt = promptMessage || config.resumePrompt || "tiếp tục";
+    const effectiveMode = promptMessage ? "custom" : (config.smartResumeMode || "smart");
+    let modeDesc = "";
+    if (promptMessage) {
+      modeDesc = `Tin nhắn: "${promptMessage}"`;
+    } else if (effectiveMode === "compact") {
+      modeDesc = "Chế độ Compact: chỉ code/diff";
+    } else if (effectiveMode === "custom") {
+      modeDesc = `Tin nhắn tùy chỉnh: "${config.resumePrompt || "tiếp tục"}"`;
+    } else {
+      modeDesc = "Chế độ Smart Resume";
+    }
+
     await sendTelegramNotification({
       botToken,
       chatId,
-      text: `⏳ *Đang đổi sang tài khoản tốt nhất và tiếp tục Paseo (Tin nhắn: "${effectivePrompt}")...*`,
+      text: `⏳ *Đang đổi sang tài khoản tốt nhất và tiếp tục Paseo (${modeDesc})...*`,
     }).catch(() => {});
 
-    await autoResumePaseoTask({ targetAgentId, promptMessage: effectivePrompt });
+    await autoResumePaseoTask({ targetAgentId, promptMessage: promptMessage || null, forceResume: true });
   } catch (err) {
     await sendTelegramNotification({
       botToken,
@@ -2571,8 +2600,9 @@ const server = http.createServer(async (req, res) => {
       const result = await autoResumePaseoTask({
         targetAgentId: payload.agentId || null,
         targetAccountId: payload.accountId || null,
-        promptMessage: payload.message || "tiếp tục",
+        promptMessage: payload.message || null,
         restartPaseo: Boolean(payload.restartPaseo),
+        forceResume: true,
       });
       res.writeHead(200, { "Content-Type": "application/json" });
       res.end(JSON.stringify({ ok: true, result }));

@@ -544,7 +544,11 @@ function App() {
 
     invokeBackend<typeof notificationConfig>("get_notification_config").then((config) => {
       if (config) {
-        setNotificationConfig(config);
+        setNotificationConfig((prev) => ({
+          ...prev,
+          ...config,
+          smartResumeMode: config.smartResumeMode || "smart",
+        }));
       }
     }).catch(() => {});
   }, [loadMaskedAccountIds]);
@@ -1351,8 +1355,20 @@ function App() {
   const handleAutoResumePaseo = async (agentId?: string, restartPaseo = false) => {
     try {
       setIsAutoResumingPaseo(true);
-      const prompt = notificationConfig.resumePrompt?.trim() || "tiếp tục";
-      showWarmupToast(`Đang phát hiện lỗi, đổi tài khoản và gửi "${prompt}"...`);
+      const mode = notificationConfig.smartResumeMode ?? "smart";
+      let modeDesc = "";
+      if (mode === "compact") {
+        modeDesc = "Compact";
+      } else if (mode === "custom") {
+        modeDesc = notificationConfig.resumePrompt?.trim() || (lang === "vi" ? "tiếp tục" : "continue");
+      } else {
+        modeDesc = "Smart Resume";
+      }
+      showWarmupToast(
+        lang === "vi"
+          ? `Đang phát hiện lỗi, đổi tài khoản và tiếp tục Paseo (${modeDesc})...`
+          : `Detecting errors, switching account and resuming Paseo (${modeDesc})...`
+      );
       const res = await invokeBackend<{
         ok: boolean;
         result?: {
@@ -1361,7 +1377,11 @@ function App() {
           switchedTo: { name: string };
           messageSent: boolean;
         };
-      }>("auto_resume_paseo", { agentId, restartPaseo, message: prompt });
+      }>("auto_resume_paseo", {
+        agentId,
+        restartPaseo,
+        message: mode === "custom" ? (notificationConfig.resumePrompt?.trim() || "tiếp tục") : undefined,
+      });
 
       if (res?.result) {
         const count = res.result.resumedCount || 1;
